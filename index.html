@@ -526,6 +526,9 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script>
+        // IMPORTANT : REMPLACEZ PAR VOTRE URL GOOGLE SCRIPT
+        const GOOGLE_SCRIPT_URL = 'COLLEZ_ICI_VOTRE_URL_COPIEE_A_LETAPE_1';
+        
         let csvData = [];
         let filteredData = [];
         let isAdminLoggedIn = false;
@@ -1027,31 +1030,59 @@
                 return;
             }
 
-            const existingIndex = caveData.findIndex(item => 
-                item.owner === owner && item.lot === lotNum
-            );
-
-            const newEntry = {
+            // Récupérer les infos du lot
+            const lot = csvData.find(row => row['N° lot'] === lotNum);
+            
+            // Préparer les données pour Google Sheets
+            const data = {
                 owner: owner,
                 lot: lotNum,
-                caveNumber: caveNum,
-                timestamp: new Date().toISOString()
+                type: lot['Type'] || '',
+                description: lot['Description'] || '',
+                caveNumber: caveNum
             };
 
-            if (existingIndex >= 0) {
-                caveData[existingIndex] = newEntry;
-            } else {
-                caveData.push(newEntry);
-            }
+            // Envoyer à Google Sheets
+            fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(() => {
+                // Mise à jour locale
+                const existingIndex = caveData.findIndex(item => 
+                    item.owner === owner && item.lot === lotNum
+                );
 
-            localStorage.setItem('caveData', JSON.stringify(caveData));
-            
-            updateDataCSVWithCaveNumber(lotNum, caveNum);
-            saveUpdatedCSV();
-            
-            showSuccess(`Numéro de cave enregistré pour le lot ${lotNum}`);
-            
-            loadOwnerCaveLots();
+                const newEntry = {
+                    owner: owner,
+                    lot: lotNum,
+                    caveNumber: caveNum,
+                    timestamp: new Date().toISOString()
+                };
+
+                if (existingIndex >= 0) {
+                    caveData[existingIndex] = newEntry;
+                } else {
+                    caveData.push(newEntry);
+                }
+
+                localStorage.setItem('caveData', JSON.stringify(caveData));
+                
+                updateDataCSVWithCaveNumber(lotNum, caveNum);
+                saveUpdatedCSV();
+                
+                showSuccess(`✓ Numéro ${caveNum} enregistré pour le lot ${lotNum} et envoyé à Google Sheets`);
+                
+                loadOwnerCaveLots();
+            })
+            .catch(error => {
+                showError('Erreur lors de l\'envoi à Google Sheets. Vérifiez votre connexion internet.');
+                console.error('Erreur:', error);
+            });
         }
 
         function deleteCaveNumber(owner, lot) {
