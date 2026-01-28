@@ -516,239 +516,7 @@
                             </select>
                         </div>
                     </div>
-
-                    <div id="lotSelection" style="display: none;">
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-    <script>
-        // IMPORTANT : REMPLACEZ PAR VOTRE URL GOOGLE SCRIPT
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxka-_FU79ih1UxYt82G-BO9nDcg87LHrVvrk3M29gM-wwPRIA42QOKJ8yx-6ER7t11/exec';
-        
-        let csvData = [];
-        let filteredData = [];
-        let isAdminLoggedIn = false;
-        let caveData = [];
-
-        window.addEventListener('load', function() {
-            const savedData = localStorage.getItem('csvData');
-            if (savedData) {
-                try {
-                    csvData = JSON.parse(savedData);
-                    filteredData = [...csvData];
-                    
-                    if (csvData.length > 0) {
-                        initializeDataDisplay();
-                        return;
-                    }
-                } catch (e) {
-                    console.log('Erreur lors du chargement des données sauvegardées');
-                }
-            }
-            
-            loadFromGitHub(true);
-        });
-
-        function togglePassword() {
-            const passwordInput = document.getElementById('passwordInput');
-            const toggleButton = document.querySelector('.password-toggle');
-            
-            if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';
-                toggleButton.textContent = '🙈';
-            } else {
-                passwordInput.type = 'password';
-                toggleButton.textContent = '👁️';
-            }
-        }
-
-        function initializeDataDisplay() {
-            csvData.sort((a, b) => {
-                const nameA = (a['Copropriétaire'] || '').toLowerCase();
-                const nameB = (b['Copropriétaire'] || '').toLowerCase();
-                return nameA.localeCompare(nameB);
-            });
-            filteredData = [...csvData];
-            
-            populateTable();
-            populateOwnerSelect();
-            populateOwnerFilter();
-            
-            document.getElementById('lots-content').style.display = 'block';
-            document.getElementById('calc-content').style.display = 'block';
-            document.getElementById('cave-content').style.display = 'block';
-            document.getElementById('no-data-message').style.display = 'none';
-            document.getElementById('no-data-calc-message').style.display = 'none';
-            document.getElementById('no-data-cave-message').style.display = 'none';
-            
-            loadCaveData();
-            populateCaveOwnerSelect();
-        }
-
-        function loadFromGitHub(silent = false) {
-            if (!silent && !isAdminLoggedIn) return;
-            
-            const githubUrl = './data.csv';
-            
-            fetch(githubUrl)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Fichier data.csv non trouvé');
-                    }
-                    return response.text();
-                })
-                .then(csvText => {
-                    Papa.parse(csvText, {
-                        header: true,
-                        skipEmptyLines: true,
-                        delimiter: ';',
-                        complete: function(results) {
-                            if (results.errors.length > 0) {
-                                if (!silent) showError('Erreur lors de la lecture du fichier CSV depuis GitHub');
-                                return;
-                            }
-
-                            csvData = results.data;
-                            localStorage.setItem('csvData', JSON.stringify(csvData));
-                            initializeDataDisplay();
-                            
-                            if (!silent) {
-                                const statusDiv = document.getElementById('admin-status');
-                                statusDiv.textContent = `Fichier chargé depuis GitHub - ${csvData.length} lots trouvés`;
-                                statusDiv.style.display = 'block';
-                                statusDiv.className = 'success';
-                                showSuccess('Fichier CSV chargé depuis GitHub avec succès');
-                            }
-                        }
-                    });
-                })
-                .catch(error => {
-                    if (!silent) {
-                        showError('Impossible de charger le fichier depuis GitHub. Vérifiez que le fichier data.csv existe dans le repository.');
-                    }
-                    console.log('Erreur chargement GitHub:', error);
-                });
-        }
-
-        function handlePasswordKeypress(event) {
-            if (event.key === 'Enter') {
-                checkPassword();
-            }
-        }
-
-        function checkPassword() {
-            const password = document.getElementById('passwordInput').value;
-            const errorDiv = document.getElementById('login-error');
-            
-            if (password === 'RFG123') {
-                isAdminLoggedIn = true;
-                document.getElementById('admin-login').style.display = 'none';
-                document.getElementById('admin-content').style.display = 'block';
-                errorDiv.style.display = 'none';
-            } else {
-                errorDiv.style.display = 'block';
-                document.getElementById('passwordInput').value = '';
-            }
-        }
-
-        function showPage(page, button) {
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-
-            document.getElementById(page + '-page').classList.add('active');
-            button.classList.add('active');
-
-            const subtitle = document.getElementById('subtitle');
-            if (page === 'admin') {
-                subtitle.textContent = 'Administration - Gestion des données';
-            } else if (page === 'lots') {
-                subtitle.textContent = 'Liste des lots de la copropriété';
-            } else if (page === 'calcul') {
-                subtitle.textContent = 'Calcul de votre quote-part des travaux';
-            } else if (page === 'cave') {
-                subtitle.textContent = 'Saisie du numéro de cave';
-            }
-
-            if (page !== 'admin') {
-                document.getElementById('admin-login').style.display = 'block';
-                document.getElementById('admin-content').style.display = 'none';
-                document.getElementById('passwordInput').value = '';
-                document.getElementById('login-error').style.display = 'none';
-                isAdminLoggedIn = false;
-            }
-        }
-
-        function loadCSV(event) {
-            if (!isAdminLoggedIn) return;
-            
-            const file = event.target.files[0];
-            if (!file) return;
-
-            Papa.parse(file, {
-                header: true,
-                skipEmptyLines: true,
-                encoding: 'UTF-8',
-                delimiter: ';',
-                complete: function(results) {
-                    if (results.errors.length > 0) {
-                        showError('Erreur lors de la lecture du fichier CSV');
-                        return;
-                    }
-
-                    csvData = results.data;
-                    localStorage.setItem('csvData', JSON.stringify(csvData));
-                    initializeDataDisplay();
-                    
-                    const statusDiv = document.getElementById('admin-status');
-                    statusDiv.textContent = `Fichier importé localement - ${csvData.length} lots trouvés`;
-                    statusDiv.style.display = 'block';
-                    statusDiv.className = 'success';
-                    
-                    showSuccess('Fichier CSV chargé avec succès');
-                }
-            });
-        }
-
-        function populateTable() {
-            const tbody = document.getElementById('lotsTableBody');
-            tbody.innerHTML = '';
-
-            filteredData.forEach(row => {
-                const tr = document.createElement('tr');
-                
-                const copNum = row['N° cop'] || '';
-                const owner = row['Copropriétaire'] || '';
-                const type = row['Type'] || '';
-                const description = row['Description'] || '';
-                const lotNum = row['N° lot'] || '';
-                const escalier = row['Escalier'] || '';
-                const etage = row['Etage'] || '';
-                const porteCave = row['Porte cave'] || '';
-                const planNum = row['N° plan'] || '';
-                const chargesGen = row['Clé 1 : charges générales'] || '';
-                const chargesAsc = row['Clé 3 : ascenceurs'] || '';
-
-                tr.innerHTML = `
-                    <td>${copNum}</td>
-                    <td>${owner}</td>
-                    <td>${type}</td>
-                    <td>${description}</td>
-                    <td>${lotNum}</td>
-                    <td>${escalier}</td>
-                    <td>${etage}</td>
-                    <td>${porteCave}</td>
-                    <td>${planNum}</td>
-                    <td>${chargesGen}</td>
-                    <td>${chargesAsc}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-		function populateOwnerSelect() {
+function populateOwnerSelect() {
             const select = document.getElementById('ownerSelect');
             select.innerHTML = '<option value="">-- Choisir un copropriétaire --</option>';
 
@@ -1149,3 +917,258 @@
     </script>
 </body>
 </html>
+                    <div id="lotSelection" style="display: none;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script>
+        // IMPORTANT : REMPLACEZ PAR VOTRE URL GOOGLE SCRIPT
+        const GOOGLE_SCRIPT_URL = 'COLLEZ_ICI_VOTRE_URL_COPIEE_A_LETAPE_1';
+        
+        let csvData = [];
+        let filteredData = [];
+        let isAdminLoggedIn = false;
+        let caveData = [];
+
+        window.addEventListener('load', function() {
+            const savedData = localStorage.getItem('csvData');
+            if (savedData) {
+                try {
+                    csvData = JSON.parse(savedData);
+                    filteredData = [...csvData];
+                    
+                    if (csvData.length > 0) {
+                        initializeDataDisplay();
+                        
+                        // Gérer la navigation par ancre (#cave, #calcul, etc.) dans l'URL
+                        const hash = window.location.hash.substring(1); // Enlever le #
+                        if (hash) {
+                            const buttons = {
+                                'admin': 0,
+                                'lots': 1,
+                                'calcul': 2,
+                                'cave': 3
+                            };
+                            
+                            if (buttons.hasOwnProperty(hash)) {
+                                const navButtons = document.querySelectorAll('.nav-btn');
+                                const button = navButtons[buttons[hash]];
+                                
+                                if (button) {
+                                    setTimeout(() => {
+                                        showPage(hash, button);
+                                    }, 100);
+                                }
+                            }
+                        }
+                        
+                        return;
+                    }
+                } catch (e) {
+                    console.log('Erreur lors du chargement des données sauvegardées');
+                }
+            }
+            
+            loadFromGitHub(true);
+        });
+
+        function togglePassword() {
+            const passwordInput = document.getElementById('passwordInput');
+            const toggleButton = document.querySelector('.password-toggle');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleButton.textContent = '🙈';
+            } else {
+                passwordInput.type = 'password';
+                toggleButton.textContent = '👁️';
+            }
+        }
+
+        function initializeDataDisplay() {
+            csvData.sort((a, b) => {
+                const nameA = (a['Copropriétaire'] || '').toLowerCase();
+                const nameB = (b['Copropriétaire'] || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            filteredData = [...csvData];
+            
+            populateTable();
+            populateOwnerSelect();
+            populateOwnerFilter();
+            
+            document.getElementById('lots-content').style.display = 'block';
+            document.getElementById('calc-content').style.display = 'block';
+            document.getElementById('cave-content').style.display = 'block';
+            document.getElementById('no-data-message').style.display = 'none';
+            document.getElementById('no-data-calc-message').style.display = 'none';
+            document.getElementById('no-data-cave-message').style.display = 'none';
+            
+            loadCaveData();
+            populateCaveOwnerSelect();
+        }
+
+        function loadFromGitHub(silent = false) {
+            if (!silent && !isAdminLoggedIn) return;
+            
+            const githubUrl = './data.csv';
+            
+            fetch(githubUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Fichier data.csv non trouvé');
+                    }
+                    return response.text();
+                })
+                .then(csvText => {
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        delimiter: ';',
+                        complete: function(results) {
+                            if (results.errors.length > 0) {
+                                if (!silent) showError('Erreur lors de la lecture du fichier CSV depuis GitHub');
+                                return;
+                            }
+
+                            csvData = results.data;
+                            localStorage.setItem('csvData', JSON.stringify(csvData));
+                            initializeDataDisplay();
+                            
+                            if (!silent) {
+                                const statusDiv = document.getElementById('admin-status');
+                                statusDiv.textContent = `Fichier chargé depuis GitHub - ${csvData.length} lots trouvés`;
+                                statusDiv.style.display = 'block';
+                                statusDiv.className = 'success';
+                                showSuccess('Fichier CSV chargé depuis GitHub avec succès');
+                            }
+                        }
+                    });
+                })
+                .catch(error => {
+                    if (!silent) {
+                        showError('Impossible de charger le fichier depuis GitHub. Vérifiez que le fichier data.csv existe dans le repository.');
+                    }
+                    console.log('Erreur chargement GitHub:', error);
+                });
+        }
+
+        function handlePasswordKeypress(event) {
+            if (event.key === 'Enter') {
+                checkPassword();
+            }
+        }
+
+        function checkPassword() {
+            const password = document.getElementById('passwordInput').value;
+            const errorDiv = document.getElementById('login-error');
+            
+            if (password === 'RFG123') {
+                isAdminLoggedIn = true;
+                document.getElementById('admin-login').style.display = 'none';
+                document.getElementById('admin-content').style.display = 'block';
+                errorDiv.style.display = 'none';
+            } else {
+                errorDiv.style.display = 'block';
+                document.getElementById('passwordInput').value = '';
+            }
+        }
+
+        function showPage(page, button) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+
+            document.getElementById(page + '-page').classList.add('active');
+            button.classList.add('active');
+
+            const subtitle = document.getElementById('subtitle');
+            if (page === 'admin') {
+                subtitle.textContent = 'Administration - Gestion des données';
+            } else if (page === 'lots') {
+                subtitle.textContent = 'Liste des lots de la copropriété';
+            } else if (page === 'calcul') {
+                subtitle.textContent = 'Calcul de votre quote-part des travaux';
+            } else if (page === 'cave') {
+                subtitle.textContent = 'Saisie du numéro de cave';
+            }
+
+            if (page !== 'admin') {
+                document.getElementById('admin-login').style.display = 'block';
+                document.getElementById('admin-content').style.display = 'none';
+                document.getElementById('passwordInput').value = '';
+                document.getElementById('login-error').style.display = 'none';
+                isAdminLoggedIn = false;
+            }
+        }
+
+        function loadCSV(event) {
+            if (!isAdminLoggedIn) return;
+            
+            const file = event.target.files[0];
+            if (!file) return;
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                encoding: 'UTF-8',
+                delimiter: ';',
+                complete: function(results) {
+                    if (results.errors.length > 0) {
+                        showError('Erreur lors de la lecture du fichier CSV');
+                        return;
+                    }
+
+                    csvData = results.data;
+                    localStorage.setItem('csvData', JSON.stringify(csvData));
+                    initializeDataDisplay();
+                    
+                    const statusDiv = document.getElementById('admin-status');
+                    statusDiv.textContent = `Fichier importé localement - ${csvData.length} lots trouvés`;
+                    statusDiv.style.display = 'block';
+                    statusDiv.className = 'success';
+                    
+                    showSuccess('Fichier CSV chargé avec succès');
+                }
+            });
+        }
+
+        function populateTable() {
+            const tbody = document.getElementById('lotsTableBody');
+            tbody.innerHTML = '';
+
+            filteredData.forEach(row => {
+                const tr = document.createElement('tr');
+                
+                const copNum = row['N° cop'] || '';
+                const owner = row['Copropriétaire'] || '';
+                const type = row['Type'] || '';
+                const description = row['Description'] || '';
+                const lotNum = row['N° lot'] || '';
+                const escalier = row['Escalier'] || '';
+                const etage = row['Etage'] || '';
+                const porteCave = row['Porte cave'] || '';
+                const planNum = row['N° plan'] || '';
+                const chargesGen = row['Clé 1 : charges générales'] || '';
+                const chargesAsc = row['Clé 3 : ascenceurs'] || '';
+
+                tr.innerHTML = `
+                    <td>${copNum}</td>
+                    <td>${owner}</td>
+                    <td>${type}</td>
+                    <td>${description}</td>
+                    <td>${lotNum}</td>
+                    <td>${escalier}</td>
+                    <td>${etage}</td>
+                    <td>${porteCave}</td>
+                    <td>${planNum}</td>
+                    <td>${chargesGen}</td>
+                    <td>${chargesAsc}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+		
