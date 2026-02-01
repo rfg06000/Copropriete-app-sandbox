@@ -1092,7 +1092,7 @@
                 body: JSON.stringify(data)
             })
             .then(() => {
-                // Mise à jour locale
+                // Mise à jour locale (pour affichage)
                 const existingIndex = caveData.findIndex(item => 
                     item.owner === owner && item.lot === lotNum
                 );
@@ -1112,8 +1112,8 @@
 
                 localStorage.setItem('caveData', JSON.stringify(caveData));
                 
+                // Mettre à jour l'affichage dans le tableau
                 updateDataCSVWithCaveNumber(lotNum, caveNum);
-                saveUpdatedCSV();
                 
                 showSuccess(`✓ Numéro ${caveNum} enregistré pour le lot ${lotNum} et envoyé à Google Sheets`);
                 
@@ -1134,25 +1134,6 @@
                     filterTable();
                 }
             }
-        }
-
-        function saveUpdatedCSV() {
-            let csvContent = 'N° cop;Copropriétaire;Type;Description;N° lot;Escalier;Etage;Porte cave;N° plan;Clé 1 : charges générales;Clé 3 : ascenceurs\n';
-            
-            csvData.forEach(row => {
-                csvContent += `${row['N° cop'] || ''};${row['Copropriétaire'] || ''};${row['Type'] || ''};${row['Description'] || ''};${row['N° lot'] || ''};${row['Escalier'] || ''};${row['Etage'] || ''};${row['Porte cave'] || ''};${row['N° plan'] || ''};${row['Clé 1 : charges générales'] || ''};${row['Clé 3 : ascenceurs'] || ''}\n`;
-            });
-
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            
-            link.setAttribute('href', url);
-            link.setAttribute('download', 'data.csv');
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
         }
 
         function loadCaveData() {
