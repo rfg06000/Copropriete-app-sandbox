@@ -836,7 +836,7 @@
                         <label>Filtrer par statut :</label>
                         <select id="suiviStatutFilter" onchange="filterSuiviTable()">
                             <option value="">-- Tous --</option>
-                            <option value="En cours">En cours</option>
+                            <option value="En cours" selected>En cours</option>
                             <option value="Clos">Clos</option>
                         </select>
                     </div>
@@ -2168,8 +2168,10 @@
                     }
                     suiviPoints = result.points;
                     suiviHistorique = result.historique;
-                    filteredSuiviData = [...suiviPoints];
-                    populateSuiviTable();
+                    // Réappliquer les filtres affichés plutôt que de tout
+                    // remontrer : sinon la liste redevient complète alors que le
+                    // menu déroulant continue d'indiquer « En cours ».
+                    filterSuiviTable();
                 })
                 .catch(error => {
                     showError('Impossible de charger les points de suivi : ' + error.message + '.');
@@ -2353,6 +2355,13 @@
             return d.toLocaleDateString('fr-FR');
         }
 
+        /** Comparaison tolérante pour les valeurs saisies dans la feuille. */
+        function normaliserTexte(valeur) {
+            return String(valeur === undefined || valeur === null ? '' : valeur)
+                .trim()
+                .toLowerCase();
+        }
+
         function computeSynthese(pointId) {
             const entries = suiviHistorique
                 .filter(h => String(h.PointId) === String(pointId))
@@ -2403,7 +2412,10 @@
             const searchFilter = document.getElementById('suiviSearchFilter').value.toLowerCase();
 
             filteredSuiviData = suiviPoints.filter(point => {
-                const statutMatch = statutFilter === '' || point.Statut === statutFilter;
+                // Les statuts viennent d'une feuille de calcul : on compare sans
+                // tenir compte de la casse ni des espaces parasites.
+                const statutMatch = statutFilter === ''
+                    || normaliserTexte(point.Statut) === normaliserTexte(statutFilter);
                 const responsableMatch = (point.Responsable || '').toLowerCase().includes(responsableFilter);
                 const searchMatch = (point.Sujet || '').toLowerCase().includes(searchFilter);
                 return statutMatch && responsableMatch && searchMatch;

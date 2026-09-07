@@ -1130,7 +1130,8 @@ function handleCreate_(body, user) {
   const sheet = ensureSheetsExist_().points;
   const newId = nextNumericId_(sheet);
   const now = nowIso_();
-  const statut = normaliserStatut_(body.statut) || STATUT_EN_COURS;
+  const statut = exigerStatutValide_(
+    normaliserStatut_(body.statut) || STATUT_EN_COURS, 'création du point');
 
   const row = [
     newId,
@@ -1180,6 +1181,20 @@ function normaliserStatut_(valeur) {
   if (v === 'Ouvert') return STATUT_EN_COURS;   // tolère l'ancien libellé
   if (STATUTS.indexOf(v) === -1) {
     throw new Error('Statut inconnu : ' + v);
+  }
+  return v;
+}
+
+/**
+ * Un point a toujours un statut, exactement "En cours" ou "Clos" : jamais vide,
+ * jamais autre chose. Toute écriture de la colonne Statut passe par ici et est
+ * rejetée si elle viole cette règle.
+ */
+function exigerStatutValide_(valeur, contexte) {
+  const v = String(valeur || '').trim();
+  if (STATUTS.indexOf(v) === -1) {
+    throw new Error('Statut invalide' + (contexte ? ' (' + contexte + ')' : '')
+      + ' : "' + v + '". Valeurs autorisées : ' + STATUTS.join(', ') + '.');
   }
   return v;
 }
@@ -1381,6 +1396,15 @@ function recomputePointCache_(pointId) {
   });
 
   const colOf = function (name) { return POINTS_HEADERS.indexOf(name) + 1; };
+
+  // Les autres champs du cache peuvent rester vides, pas le statut : si aucune
+  // entrée d'historique n'en porte plus (une correction a pu en effacer un), on
+  // conserve celui déjà enregistré sur le point plutôt que de le vider.
+  cache.Statut = normaliserStatut_(cache.Statut)
+    || normaliserStatut_(pointsValues[rowIndex - 1][colOf('Statut') - 1])
+    || STATUT_EN_COURS;
+  exigerStatutValide_(cache.Statut, 'point ' + pid);
+
   CACHE_FIELDS.forEach(function (f) {
     pointsSheet.getRange(rowIndex, colOf(f)).setValue(cache[f]);
   });
