@@ -142,6 +142,12 @@ const LOTS_HEADERS = [
 
 const CACHE_FIELDS = ['Responsable', 'DateEcheance', 'Priorite', 'Statut'];
 
+// Pièces jointes : un seul dossier Drive, à plat. Le préfixe « ID_date » du nom
+// de fichier suffit à retrouver et trier, et évite les sous-dossiers orphelins
+// quand un point est supprimé.
+const DOSSIER_PIECES_JOINTES = 'Suivi copropriété - Pièces jointes (SANDBOX)';
+const TAILLE_MAX_PIECE_JOINTE = 10 * 1024 * 1024;   // 10 Mo, comme côté client
+
 const STATUT_EN_COURS = 'En cours';
 const STATUT_CLOS = 'Clos';
 const STATUTS = [STATUT_EN_COURS, STATUT_CLOS];
@@ -939,6 +945,18 @@ function doPost(e) {
   }
 
   const action = body.action;
+
+  // L'envoi d'une pièce jointe ne touche aucune feuille : le prendre sous le
+  // verrou global ferait échouer les enregistrements des autres utilisateurs
+  // pendant tout le transfert (« Le serveur est occupé »).
+  if (action === 'uploadDocument') {
+    try {
+      return jsonOut_(handleUploadDocument_(body, requireUser_(body)));
+    } catch (err) {
+      return jsonOut_({ ok: false, error: err.message || String(err), code: err.codeApp || '' });
+    }
+  }
+
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(30000);
@@ -1124,6 +1142,79 @@ function handleLogout_(body) {
 /* ==================== Points de suivi (actions métier) ==================== */
 
 /** create — réservé aux administrateurs (cf. doPost). */
+/* ===================== Pièces jointes (Google Drive) ===================== */
+
+/** Le dossier des pièces jointes, créé au premier envoi comme ensureSheetsExist_. */
+function dossierPiecesJointes_() {
+  const existants = DriveApp.getFoldersByName(DOSSIER_PIECES_JOINTES);
+  if (existants.hasNext()) return existants.next();
+  return DriveApp.createFolder(DOSSIER_PIECES_JOINTES);
+}
+
+/**
+ * Nom de fichier tracable et sans collision : ID du point, date, nom d'origine.
+ * Le point n'existe pas encore quand la pièce est jointe depuis le formulaire
+ * de création : on le note alors « nouveau », le rattachement restant assuré
+ * par le lien enregistré dans la colonne Document.
+ */
+function nomPieceJointe_(pointId, nomOriginal) {
+  const pid = String(pointId || '').trim() || 'nouveau';
+  const jour = nowIso_().slice(0, 10);
+  // Liste blanche plutôt que liste noire : tout ce qui n'est ni lettre, ni
+  // chiffre, ni ponctuation simple devient « _ », séparateurs compris.
+  const propre = String(nomOriginal || 'fichier')
+    .replace(/[^A-Za-z0-9À-ſ ._()-]+/g, '_')
+    .replace(/^[._]+/, '')
+    .trim()
+    .slice(-120) || 'fichier';
+  return pid + '_' + jour + '_' + propre;
+}
+
+/**
+ * uploadDocument — ouvert à tout utilisateur connecté, comme l'ajout de suivi
+ * auquel la pièce jointe se rattache. N'écrit dans aucune feuille : le fichier
+ * créé est simplement partagé en lecture par lien, et l'URL renvoyée ira dans
+ * la colonne Document existante.
+ */
+function handleUploadDocument_(body, user) {
+  if (!body.nom) return { ok: false, error: 'Nom de fichier requis' };
+  if (!body.contenu) return { ok: false, error: 'Fichier vide' };
+
+  let octets;
+  try {
+    octets = Utilities.base64Decode(body.contenu);
+  } catch (err) {
+    return { ok: false, error: 'Fichier illisible (encodage invalide).' };
+  }
+
+  if (octets.length > TAILLE_MAX_PIECE_JOINTE) {
+    return {
+      ok: false,
+      error: 'Fichier trop volumineux : ' + Math.round(octets.length / 1024 / 1024)
+        + ' Mo pour un maximum de ' + (TAILLE_MAX_PIECE_JOINTE / 1024 / 1024) + ' Mo.'
+    };
+  }
+
+  const nom = nomPieceJointe_(body.pointId, body.nom);
+  const blob = Utilities.newBlob(octets, body.mimeType || 'application/octet-stream', nom);
+  const fichier = dossierPiecesJointes_().createFile(blob);
+
+  // Les destinataires du lien ne sont pas tous membres du Drive : sans partage
+  // par lien, la pièce jointe serait inaccessible depuis la fiche du point.
+  try {
+    fichier.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (err) {
+    fichier.setTrashed(true);
+    return {
+      ok: false,
+      error: 'Le partage par lien a été refusé par Google Drive : ' + err.message
+        + ' La pièce jointe a été supprimée, elle serait restée inaccessible.'
+    };
+  }
+
+  return { ok: true, url: fichier.getUrl(), nom: nom, taille: octets.length };
+}
+
 function handleCreate_(body, user) {
   if (!body.sujet) return { ok: false, error: 'Sujet requis' };
 

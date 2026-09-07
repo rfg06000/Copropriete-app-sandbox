@@ -957,10 +957,11 @@
             </div>
             <div class="form-group" style="margin-bottom:12px;">
                 <label>Document (lien)</label>
-                <div style="display:flex;gap:8px;">
-                    <input type="text" id="np-document" placeholder="Lien Drive/OneDrive..." style="flex:1;">
-                    <button type="button" class="calc-btn" style="white-space:nowrap;padding:8px 12px;font-size:13px;" onclick="pickFromOneDrive('np-document')">📁 OneDrive</button>
+                <div style="display:flex;gap:8px;margin-bottom:8px;">
+                    <input type="file" id="np-fichier" style="flex:1;">
+                    <button type="button" class="calc-btn" style="white-space:nowrap;padding:8px 12px;font-size:13px;" onclick="joindreFichier('np-fichier', 'np-document', this, '')">📎 Joindre le fichier</button>
                 </div>
+                <input type="text" id="np-document" placeholder="Lien du document (rempli par l'envoi, ou collé à la main)" style="width:100%;">
             </div>
             <button class="calc-btn" onclick="submitNouveauPoint(this)">Créer le point</button>
         </div>
@@ -1006,25 +1007,16 @@
                     </div>
                     <div class="form-group">
                         <label>Document (lien)</label>
-                        <div style="display:flex;gap:8px;">
-                            <input type="text" id="suivi-new-document" placeholder="Lien Drive/OneDrive..." style="flex:1;">
-                            <button type="button" class="calc-btn" style="white-space:nowrap;padding:8px 12px;font-size:13px;" onclick="pickFromOneDrive('suivi-new-document')">📁 OneDrive</button>
+                        <div style="display:flex;gap:8px;margin-bottom:8px;">
+                            <input type="file" id="suivi-new-fichier" style="flex:1;">
+                            <button type="button" class="calc-btn" style="white-space:nowrap;padding:8px 12px;font-size:13px;" onclick="joindreFichier('suivi-new-fichier', 'suivi-new-document', this, currentOpenSuiviId)">📎 Joindre le fichier</button>
                         </div>
+                        <input type="text" id="suivi-new-document" placeholder="Lien du document (rempli par l'envoi, ou collé à la main)" style="width:100%;">
                     </div>
                 </div>
                 <button class="calc-btn" onclick="submitAjoutSuivi(this)">Ajouter</button>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Modale sélecteur OneDrive (navigation en lecture seule dans son propre OneDrive) -->
-    <div class="modal-overlay" id="oneDrivePickerModal">
-        <div class="modal">
-            <button class="modal-close" onclick="closeOneDrivePicker()">✕</button>
-            <h3>Choisir un fichier OneDrive</h3>
-            <div id="od-breadcrumb" style="margin-bottom:12px;font-size:13px;color:#666;"></div>
-            <div id="od-file-list" style="max-height:350px;overflow-y:auto;border:1px solid #e1e5e9;border-radius:5px;"></div>
         </div>
     </div>
 
@@ -1096,11 +1088,8 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@5.17.1/lib/msal-browser.min.js"></script>
     <script>
         const SUIVI_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzul9-VD8KaC8obVeFE9z9JNrn0D1eolciTjaDvbVrGFwVvdOos9U_HKCJi5VnhsCKd/exec';
-        const ONEDRIVE_CLIENT_ID = '0552433d-42fa-46e7-bbb9-13c72e253f17';
-        const ONEDRIVE_REDIRECT_URI = window.location.origin + '/';
         let csvData = [];
         let filteredData = [];
         let suiviPoints = [];
@@ -2199,173 +2188,82 @@
                 });
         }
 
-        let msalInstance = null;
-        let oneDriveTargetInputId = null;
-        let odFolderStack = [];
+        /**
+         * Envoi d'une pièce jointe : le fichier part en base64 vers Apps Script,
+         * qui le dépose dans le dossier Drive partagé et renvoie son lien. Le
+         * champ texte garde le lien et devient non modifiable, pour qu'on ne
+         * puisse pas désolidariser le lien du fichier réellement déposé.
+         */
+        const TAILLE_MAX_PIECE_JOINTE = 10 * 1024 * 1024;   // 10 Mo, comme le serveur
 
-        // MSAL doit être initialisé dès le chargement de la page (pas seulement au clic),
-        // car cette même page se recharge aussi à l'intérieur de la fenêtre popup Microsoft
-        // au retour de connexion — c'est cette instance-là qui détecte le retour et referme
-        // la popup automatiquement.
-        const msalReadyPromise = (async function () {
-            msalInstance = new msal.PublicClientApplication({
-                auth: {
-                    clientId: ONEDRIVE_CLIENT_ID,
-                    authority: 'https://login.microsoftonline.com/consumers',
-                    redirectUri: ONEDRIVE_REDIRECT_URI
-                }
+        function lireFichierEnBase64(fichier) {
+            return new Promise((resolve, reject) => {
+                const lecteur = new FileReader();
+                lecteur.onerror = () => reject(new Error('Lecture du fichier impossible'));
+                lecteur.onload = () => {
+                    // readAsDataURL rend « data:<type>;base64,<contenu> »
+                    const brut = String(lecteur.result);
+                    resolve(brut.slice(brut.indexOf(',') + 1));
+                };
+                lecteur.readAsDataURL(fichier);
             });
-            await msalInstance.initialize();
-            await msalInstance.handleRedirectPromise();
-            return msalInstance;
-        })();
-
-        async function getMsalInstance() {
-            return msalReadyPromise;
         }
 
-        async function odGetToken() {
-            const app = await getMsalInstance();
-            const account = app.getAllAccounts()[0];
-            if (!account) {
-                const result = await app.loginPopup({ scopes: ['Files.Read'] });
-                return result.accessToken;
-            }
-            try {
-                const result = await app.acquireTokenSilent({ scopes: ['Files.Read'], account: account });
-                return result.accessToken;
-            } catch (e) {
-                const result = await app.acquireTokenPopup({ scopes: ['Files.Read'] });
-                return result.accessToken;
-            }
+        function formaterTaille(octets) {
+            return octets >= 1024 * 1024
+                ? (octets / 1024 / 1024).toFixed(1) + ' Mo'
+                : Math.max(1, Math.round(octets / 1024)) + ' Ko';
         }
 
-        async function pickFromOneDrive(targetInputId) {
-            if (typeof msal === 'undefined') {
-                showError('La librairie de connexion Microsoft n\'a pas pu se charger. Vérifiez votre connexion internet.');
+        function joindreFichier(inputFichierId, inputLienId, bouton, pointId) {
+            const champFichier = document.getElementById(inputFichierId);
+            const champLien = document.getElementById(inputLienId);
+            const fichier = champFichier.files && champFichier.files[0];
+
+            if (!fichier) {
+                showError("Choisissez d'abord un fichier à joindre.");
+                return;
+            }
+            if (fichier.size > TAILLE_MAX_PIECE_JOINTE) {
+                showError('Fichier trop volumineux : ' + formaterTaille(fichier.size)
+                    + ' pour un maximum de 10 Mo. Choisissez un fichier plus léger.');
                 return;
             }
 
-            oneDriveTargetInputId = targetInputId;
+            setButtonLoading(bouton, true, 'Envoi du fichier...');
 
-            try {
-                await odGetToken();
-                odFolderStack = [{ id: 'root', name: 'OneDrive' }];
-                document.getElementById('oneDrivePickerModal').classList.add('active');
-                await odLoadFolder('root');
-            } catch (e) {
-                showError('Erreur de connexion OneDrive : ' + (e && e.message ? e.message : String(e)));
-                console.error('Erreur OneDrive:', e);
+            lireFichierEnBase64(fichier)
+                .then(contenu => apiPost('uploadDocument', {
+                    pointId: pointId || '',
+                    nom: fichier.name,
+                    mimeType: fichier.type || 'application/octet-stream',
+                    contenu: contenu
+                }))
+                .then(result => {
+                    if (!result.ok) {
+                        showError("Erreur lors de l'envoi du fichier : " + result.error);
+                        return;
+                    }
+                    champLien.value = result.url;
+                    champLien.readOnly = true;
+                    showSuccess('Fichier joint : ' + result.nom);
+                })
+                .catch(error => {
+                    showError("Erreur lors de l'envoi du fichier. Vérifiez votre connexion internet.");
+                    console.error('Erreur:', error);
+                })
+                .finally(() => setButtonLoading(bouton, false));
+        }
+
+        /** Remet le couple « fichier choisi / lien » à zéro quand on rouvre un formulaire. */
+        function reinitialiserPieceJointe(inputFichierId, inputLienId) {
+            const champFichier = document.getElementById(inputFichierId);
+            const champLien = document.getElementById(inputLienId);
+            if (champFichier) champFichier.value = '';
+            if (champLien) {
+                champLien.value = '';
+                champLien.readOnly = false;
             }
-        }
-
-        async function odLoadFolder(folderId) {
-            const listDiv = document.getElementById('od-file-list');
-            listDiv.innerHTML = '<div style="padding:15px;color:#666;">Chargement...</div>';
-
-            try {
-                const token = await odGetToken();
-                const url = folderId === 'root'
-                    ? 'https://graph.microsoft.com/v1.0/me/drive/root/children?$select=id,name,folder'
-                    : 'https://graph.microsoft.com/v1.0/me/drive/items/' + folderId + '/children?$select=id,name,folder';
-
-                const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-                const data = await resp.json();
-
-                if (!resp.ok) {
-                    listDiv.innerHTML = '';
-                    showError('Erreur Microsoft Graph : ' + (data.error ? data.error.message : resp.status));
-                    return;
-                }
-
-                renderOdBreadcrumb();
-                listDiv.innerHTML = '';
-
-                const items = (data.value || []).slice().sort((a, b) => {
-                    if (!!a.folder !== !!b.folder) return a.folder ? -1 : 1;
-                    return a.name.localeCompare(b.name);
-                });
-
-                if (items.length === 0) {
-                    listDiv.innerHTML = '<div style="padding:15px;color:#666;">Dossier vide.</div>';
-                    return;
-                }
-
-                items.forEach(item => {
-                    const row = document.createElement('div');
-                    row.style.cssText = 'padding:10px;border-bottom:1px solid #e1e5e9;cursor:pointer;display:flex;align-items:center;gap:8px;';
-                    row.onmouseover = () => row.style.background = '#f0f7ff';
-                    row.onmouseout = () => row.style.background = '';
-
-                    const icon = document.createElement('span');
-                    icon.textContent = item.folder ? '📁' : '📄';
-                    const name = document.createElement('span');
-                    name.textContent = item.name;
-
-                    row.appendChild(icon);
-                    row.appendChild(name);
-                    row.onclick = item.folder
-                        ? function () { odFolderStack.push({ id: item.id, name: item.name }); odLoadFolder(item.id); }
-                        : function () { odSelectFile(item.id, item.name); };
-
-                    listDiv.appendChild(row);
-                });
-            } catch (e) {
-                listDiv.innerHTML = '';
-                showError('Erreur lors du chargement du dossier : ' + (e && e.message ? e.message : String(e)));
-                console.error(e);
-            }
-        }
-
-        function renderOdBreadcrumb() {
-            const bc = document.getElementById('od-breadcrumb');
-            bc.innerHTML = '';
-            odFolderStack.forEach((f, i) => {
-                const span = document.createElement('span');
-                span.textContent = f.name;
-                span.style.cssText = 'cursor:pointer;color:#4a90e2;';
-                span.onclick = function () {
-                    odFolderStack = odFolderStack.slice(0, i + 1);
-                    odLoadFolder(f.id);
-                };
-                bc.appendChild(span);
-                if (i < odFolderStack.length - 1) {
-                    const sep = document.createElement('span');
-                    sep.textContent = ' / ';
-                    bc.appendChild(sep);
-                }
-            });
-        }
-
-        async function odSelectFile(itemId, itemName) {
-            try {
-                const token = await odGetToken();
-                const resp = await fetch('https://graph.microsoft.com/v1.0/me/drive/items/' + itemId + '/createLink', {
-                    method: 'POST',
-                    headers: {
-                        Authorization: 'Bearer ' + token,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ type: 'view', scope: 'anonymous' })
-                });
-                const data = await resp.json();
-
-                if (resp.ok && data.link && data.link.webUrl) {
-                    document.getElementById(oneDriveTargetInputId).value = data.link.webUrl;
-                    showSuccess('Lien OneDrive récupéré : ' + itemName);
-                    closeOneDrivePicker();
-                } else {
-                    showError('Impossible de créer le lien de partage : ' + (data.error ? data.error.message : resp.status));
-                    console.error(data);
-                }
-            } catch (e) {
-                showError('Erreur lors de la création du lien : ' + (e && e.message ? e.message : String(e)));
-                console.error(e);
-            }
-        }
-
-        function closeOneDrivePicker() {
-            document.getElementById('oneDrivePickerModal').classList.remove('active');
         }
 
         function formatDateFR(isoOrDateString) {
@@ -2475,7 +2373,7 @@
             document.getElementById('np-responsable').value = '';
             document.getElementById('np-dateEcheance').value = '';
             document.getElementById('np-priorite').value = '';
-            document.getElementById('np-document').value = '';
+            reinitialiserPieceJointe('np-fichier', 'np-document');
             document.getElementById('nouveauPointModal').classList.add('active');
         }
 
@@ -2642,7 +2540,7 @@
             document.getElementById('suivi-new-comment').value = '';
             document.getElementById('suivi-new-resume').value = '';
             document.getElementById('suivi-new-echeance').value = '';
-            document.getElementById('suivi-new-document').value = '';
+            reinitialiserPieceJointe('suivi-new-fichier', 'suivi-new-document');
 
             document.getElementById('suiviFicheModal').classList.add('active');
         }
