@@ -24,6 +24,24 @@
             padding: 20px;
         }
 
+        /* Bandeau permanent : cette copie de l'application n'est pas la
+           production. Il est hors du conteneur des pages pour rester visible
+           sur les quatre onglets, et collé en haut au défilement. */
+        .env-banner {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #c0392b;
+            color: #fff;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.05em;
+            letter-spacing: 1px;
+            padding: 10px 15px;
+            border-bottom: 3px solid #7f1d15;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+
         .header {
             text-align: center;
             margin-bottom: 30px;
@@ -604,6 +622,8 @@
     </style>
 </head>
 <body>
+    <div class="env-banner" role="alert">⚠️ ENVIRONNEMENT DE TEST — SANDBOX</div>
+
     <div class="container">
         <div class="header">
             <h1>La résidence du parc</h1>
