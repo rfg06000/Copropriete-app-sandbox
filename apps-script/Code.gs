@@ -1199,6 +1199,19 @@ function exigerStatutValide_(valeur, contexte) {
   return v;
 }
 
+/**
+ * Variante tolérante de normaliserStatut_ : rend '' au lieu de lever quand la
+ * valeur est inexploitable. Sert à relire une cellule saisie à la main dans le
+ * Sheet sans faire échouer toute la requête à cause d'elle.
+ */
+function statutOuVide_(valeur) {
+  try {
+    return normaliserStatut_(valeur);
+  } catch (err) {
+    return '';
+  }
+}
+
 function trouverPoint_(pointId) {
   const pid = String(pointId);
   const points = readAllPoints_();
@@ -1238,9 +1251,9 @@ function handleAjoutSuivi_(body, user) {
     auteur: nomAffiche_(user)
   });
 
-  const ok = recomputePointCache_(pid);
-  if (!ok) return { ok: false, error: 'Point introuvable: ' + pid };
-  return { ok: true, id: pid };
+  const recalcul = recomputePointCache_(pid);
+  if (!recalcul.ok) return { ok: false, error: 'Point introuvable: ' + pid };
+  return { ok: true, id: pid, avertissement: recalcul.avertissement };
 }
 
 /** editSuivi — corriger une entrée déjà enregistrée : administrateurs seuls. */
@@ -1279,8 +1292,8 @@ function handleEditSuivi_(body, user) {
   }
 
   if (!found) return { ok: false, error: 'Entrée introuvable: ' + body.histoId };
-  recomputePointCache_(pointId);
-  return { ok: true, id: String(pointId) };
+  const recalcul = recomputePointCache_(pointId);
+  return { ok: true, id: String(pointId), avertissement: recalcul.avertissement };
 }
 
 /** renamePoint — administrateurs seuls. */
@@ -1381,7 +1394,7 @@ function recomputePointCache_(pointId) {
   for (let i = 1; i < pointsValues.length; i++) {
     if (String(pointsValues[i][0]) === pid) { rowIndex = i + 1; break; }
   }
-  if (rowIndex === -1) return false;
+  if (rowIndex === -1) return { ok: false, avertissement: '' };
 
   const histo = readAllHistorique_()
     .filter(function (h) { return String(h.PointId) === pid; })
@@ -1400,16 +1413,28 @@ function recomputePointCache_(pointId) {
   // Les autres champs du cache peuvent rester vides, pas le statut : si aucune
   // entrée d'historique n'en porte plus (une correction a pu en effacer un), on
   // conserve celui déjà enregistré sur le point plutôt que de le vider.
-  cache.Statut = normaliserStatut_(cache.Statut)
-    || normaliserStatut_(pointsValues[rowIndex - 1][colOf('Statut') - 1])
-    || STATUT_EN_COURS;
-  exigerStatutValide_(cache.Statut, 'point ' + pid);
+  //
+  // Aucune des lectures ci-dessous ne doit pouvoir lever : une cellule Statut
+  // saisie à la main et illisible ne peut pas faire échouer l'enregistrement
+  // du suivi qu'on est en train de sauvegarder. On répare et on le signale.
+  const statutHistorique = statutOuVide_(cache.Statut);
+  const statutStocke = statutOuVide_(pointsValues[rowIndex - 1][colOf('Statut') - 1]);
+  const brutStocke = String(pointsValues[rowIndex - 1][colOf('Statut') - 1] || '').trim();
+
+  let avertissement = '';
+  if (!statutHistorique && brutStocke && !statutStocke) {
+    avertissement = 'Le statut du point ' + pid + ' était illisible dans la feuille ('
+      + '"' + brutStocke + '") : il a été remis à "' + STATUT_EN_COURS + '".';
+  }
+
+  cache.Statut = exigerStatutValide_(
+    statutHistorique || statutStocke || STATUT_EN_COURS, 'point ' + pid);
 
   CACHE_FIELDS.forEach(function (f) {
     pointsSheet.getRange(rowIndex, colOf(f)).setValue(cache[f]);
   });
   pointsSheet.getRange(rowIndex, colOf('DateMAJ')).setValue(nowIso_());
-  return true;
+  return { ok: true, avertissement: avertissement };
 }
 
 /* ======================= Administration : Lots ======================= */
