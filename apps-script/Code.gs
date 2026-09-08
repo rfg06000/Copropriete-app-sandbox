@@ -1711,28 +1711,36 @@ function handleRemoveUser_(body, user) {
 /* ============================ Diagnostics ============================ */
 
 /**
- * Compare la ligne d'en-têtes réelle de la feuille Historique à HISTO_HEADERS,
- * et mesure la largeur effective de chaque ligne de données.
+ * Compare la ligne d'en-têtes réelle d'une feuille à sa liste de référence, et
+ * mesure la largeur effective de chaque ligne de données.
  *
- * Strictement en lecture : à exécuter avant toute reprise des en-têtes, pour
- * savoir si seule la ligne 1 est à corriger ou si des lignes anciennes sont
- * réellement décalées (voir ensureSheetsExist_).
- *
- * Volontairement sans « _ » final, contrairement au reste des utilitaires :
- * une fonction privée n'apparaît pas dans le sélecteur « Exécuter » de
- * l'éditeur Apps Script, et celle-ci est faite pour être lancée à la main.
- * Résultat dans Exécution > Journaux.
+ * Strictement en lecture. À exécuter avant d'appliquer alignerEntetes_ à une
+ * feuille : celle-ci corrige le libellé des colonnes, pas des données déjà
+ * décalées, qu'elle rendrait au contraire moins visibles.
  */
-function diagnostiquerHistorique() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HISTO_SHEET_NAME);
+function diagnostiquerFeuille_(nomFeuille, headers) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nomFeuille);
   if (!sheet) {
-    Logger.log('Feuille "%s" introuvable.', HISTO_SHEET_NAME);
+    Logger.log('--- %s : feuille introuvable.', nomFeuille);
     return;
   }
 
   const valeurs = sheet.getDataRange().getValues();
-  Logger.log('En-têtes réels : %s', JSON.stringify(valeurs[0]));
-  Logger.log('Attendus       : %s', JSON.stringify(HISTO_HEADERS));
+  const actuels = (valeurs[0] || []).map(function (h) { return String(h).trim(); });
+  const conforme = headers.length === actuels.length
+    && headers.every(function (h, i) { return actuels[i] === h; });
+
+  Logger.log('--- %s', nomFeuille);
+  Logger.log('  en-têtes : %s', conforme ? 'CONFORMES' : 'À CORRIGER');
+  if (!conforme) {
+    Logger.log('    réels    : %s', JSON.stringify(actuels));
+    Logger.log('    attendus : %s', JSON.stringify(headers));
+    // Les noms absents comptent plus que l'ordre : c'est ce qui indique une
+    // colonne jamais créée, comme Document l'était dans Historique.
+    Logger.log('    noms manquants : %s', JSON.stringify(headers.filter(function (h) {
+      return actuels.indexOf(h) === -1;
+    })));
+  }
 
   // Largeur utile d'une ligne : dernière cellule non vide. getLastColumn() ne
   // renseigne que sur la ligne la plus large de la feuille, ce qui masque
@@ -1744,6 +1752,23 @@ function diagnostiquerHistorique() {
     return acc;
   }, {});
 
-  Logger.log('lignes de données=%s  getLastColumn=%s  largeurs=%s',
-    Math.max(0, valeurs.length - 1), sheet.getLastColumn(), JSON.stringify(largeurs));
+  Logger.log('  lignes de données=%s  getLastColumn=%s  attendu=%s',
+    Math.max(0, valeurs.length - 1), sheet.getLastColumn(), headers.length);
+  Logger.log('  largeurs des lignes : %s', JSON.stringify(largeurs));
+  Logger.log('  → %s', Object.keys(largeurs).every(function (n) { return Number(n) === headers.length; })
+    ? 'toutes les lignes sont à la bonne largeur.'
+    : 'CERTAINES LIGNES SONT PLUS COURTES : données potentiellement décalées, ne pas réaligner sans les reprendre.');
+}
+
+/**
+ * Diagnostic des deux feuilles du module Points de suivi.
+ *
+ * Volontairement sans « _ » final, contrairement au reste des utilitaires :
+ * une fonction privée n'apparaît pas dans le sélecteur « Exécuter » de
+ * l'éditeur Apps Script, et celle-ci est faite pour être lancée à la main.
+ * Résultat dans Exécution > Journaux.
+ */
+function diagnostiquerSuivi() {
+  diagnostiquerFeuille_(POINTS_SHEET_NAME, POINTS_HEADERS);
+  diagnostiquerFeuille_(HISTO_SHEET_NAME, HISTO_HEADERS);
 }
