@@ -148,6 +148,10 @@ const CACHE_FIELDS = ['Responsable', 'DateEcheance', 'Priorite', 'Statut'];
 const DOSSIER_PIECES_JOINTES = 'Suivi copropriété - Pièces jointes (SANDBOX)';
 const TAILLE_MAX_PIECE_JOINTE = 10 * 1024 * 1024;   // 10 Mo, comme côté client
 
+// Longueur du « À faire » affiché dans la liste des points. Doit rester égale
+// au maxlength des champs correspondants côté client.
+const RESUME_MAX = 50;
+
 const STATUT_EN_COURS = 'En cours';
 const STATUT_CLOS = 'Clos';
 const STATUTS = [STATUT_EN_COURS, STATUT_CLOS];
@@ -260,14 +264,46 @@ function ensureSheetsExist_() {
   }
   if (histo.getLastRow() === 0) {
     histo.appendRow(HISTO_HEADERS);
-  } else if (histo.getLastColumn() < HISTO_HEADERS.length) {
-    // Migration : ajout de la colonne "Auteur" aux historiques existants.
-    const manquantes = HISTO_HEADERS.slice(histo.getLastColumn());
-    histo.getRange(1, histo.getLastColumn() + 1, 1, manquantes.length).setValues([manquantes]);
+  } else {
+    alignerEntetes_(histo, HISTO_HEADERS);
   }
 
   _feuillesSuivi = { points: points, histo: histo };
   return _feuillesSuivi;
+}
+
+/**
+ * Réaligne la ligne d'en-têtes d'une feuille existante sur sa liste de
+ * référence. N'écrit que la ligne 1, jamais les données.
+ *
+ * Remplace une migration qui complétait « par la fin » à partir de
+ * getLastColumn(), et qui ne pouvait pas fonctionner :
+ *
+ *  - getLastColumn() est la dernière colonne remplie de TOUTE la feuille, pas
+ *    la largeur de la ligne d'en-têtes. Dès qu'une ligne de données atteint la
+ *    largeur cible, la feuille paraît complète et la migration ne se déclenche
+ *    plus, même si la ligne 1 nomme moins de colonnes.
+ *  - Les colonnes n'ont pas toutes été ajoutées en dernière position : Document
+ *    est intercalée avant Statut. Compléter par la fin aurait écrit le mauvais
+ *    nom dans la mauvaise colonne.
+ *
+ * Comme toutes les lectures et écritures adressent les colonnes par
+ * HISTO_HEADERS.indexOf(...), la ligne 1 doit nommer exactement cette liste,
+ * dans cet ordre. Renvoie l'ancienne ligne d'en-têtes si elle a été corrigée,
+ * null si elle était déjà conforme.
+ */
+function alignerEntetes_(sheet, headers) {
+  const aCreer = headers.length - sheet.getMaxColumns();
+  if (aCreer > 0) sheet.insertColumnsAfter(sheet.getMaxColumns(), aCreer);
+
+  const plage = sheet.getRange(1, 1, 1, headers.length);
+  const actuels = plage.getValues()[0].map(function (h) { return String(h).trim(); });
+  const conforme = headers.every(function (h, i) { return actuels[i] === h; });
+  if (conforme) return null;
+
+  plage.setValues([headers]);
+  Logger.log('En-têtes de "%s" réalignés. Avant : %s', sheet.getName(), JSON.stringify(actuels));
+  return actuels;
 }
 
 function ensureAuthSheets_() {
@@ -1241,7 +1277,7 @@ function handleCreate_(body, user) {
   const note = body.note || ('Point créé : ' + body.sujet);
   appendHistorique_(newId, {
     note: note,
-    resume: body.resume || note.slice(0, 30),
+    resume: body.resume || note.slice(0, RESUME_MAX),
     responsable: body.responsable || '',
     dateEcheance: body.dateEcheance || '',
     priorite: body.priorite || '',
@@ -1333,7 +1369,7 @@ function handleAjoutSuivi_(body, user) {
 
   appendHistorique_(pid, {
     note: body.note,
-    resume: body.resume || String(body.note).slice(0, 30),
+    resume: body.resume || String(body.note).slice(0, RESUME_MAX),
     responsable: body.responsable || '',
     dateEcheance: body.dateEcheance || '',
     priorite: body.priorite || '',
@@ -1372,9 +1408,16 @@ function handleEditSuivi_(body, user) {
         document: 'Document',
         statut: 'Statut'
       };
+      // Les mêmes normalisations qu'à l'écriture initiale (appendHistorique_) :
+      // corriger une entrée ne doit pas permettre d'y placer une valeur que
+      // l'ajout aurait refusée ou tronquée.
+      const normaliser = {
+        statut: normaliserStatut_,
+        resume: function (v) { return String(v == null ? '' : v).slice(0, RESUME_MAX); }
+      };
       Object.keys(editable).forEach(function (key) {
         if (Object.prototype.hasOwnProperty.call(body, key)) {
-          const valeur = key === 'statut' ? normaliserStatut_(body[key]) : body[key];
+          const valeur = normaliser[key] ? normaliser[key](body[key]) : body[key];
           sheet.getRange(rowIndex, colOf(editable[key])).setValue(valeur);
         }
       });
@@ -1460,7 +1503,7 @@ function appendHistorique_(pointId, fields) {
     pointId,
     nowIso_(),
     fields.note || '',
-    (fields.resume || '').slice(0, 30),
+    (fields.resume || '').slice(0, RESUME_MAX),
     fields.responsable || '',
     fields.dateEcheance || '',
     fields.priorite || '',
@@ -1663,4 +1706,44 @@ function handleRemoveUser_(body, user) {
   supprimerJetonsDe_(cible.email, null);          // révoque ses sessions
   ensureAuthSheets_().users.deleteRow(cible.rowIndex);
   return { ok: true, email: cible.email };
+}
+
+/* ============================ Diagnostics ============================ */
+
+/**
+ * Compare la ligne d'en-têtes réelle de la feuille Historique à HISTO_HEADERS,
+ * et mesure la largeur effective de chaque ligne de données.
+ *
+ * Strictement en lecture : à exécuter avant toute reprise des en-têtes, pour
+ * savoir si seule la ligne 1 est à corriger ou si des lignes anciennes sont
+ * réellement décalées (voir ensureSheetsExist_).
+ *
+ * Volontairement sans « _ » final, contrairement au reste des utilitaires :
+ * une fonction privée n'apparaît pas dans le sélecteur « Exécuter » de
+ * l'éditeur Apps Script, et celle-ci est faite pour être lancée à la main.
+ * Résultat dans Exécution > Journaux.
+ */
+function diagnostiquerHistorique() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HISTO_SHEET_NAME);
+  if (!sheet) {
+    Logger.log('Feuille "%s" introuvable.', HISTO_SHEET_NAME);
+    return;
+  }
+
+  const valeurs = sheet.getDataRange().getValues();
+  Logger.log('En-têtes réels : %s', JSON.stringify(valeurs[0]));
+  Logger.log('Attendus       : %s', JSON.stringify(HISTO_HEADERS));
+
+  // Largeur utile d'une ligne : dernière cellule non vide. getLastColumn() ne
+  // renseigne que sur la ligne la plus large de la feuille, ce qui masque
+  // précisément les lignes anciennes plus courtes que l'on cherche ici.
+  const largeurs = valeurs.slice(1).reduce(function (acc, ligne) {
+    let n = ligne.length;
+    while (n > 0 && (ligne[n - 1] === '' || ligne[n - 1] === null)) n--;
+    acc[n] = (acc[n] || 0) + 1;
+    return acc;
+  }, {});
+
+  Logger.log('lignes de données=%s  getLastColumn=%s  largeurs=%s',
+    Math.max(0, valeurs.length - 1), sheet.getLastColumn(), JSON.stringify(largeurs));
 }

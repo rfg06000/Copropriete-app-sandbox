@@ -345,6 +345,51 @@
             margin: 10px 0;
         }
 
+        /* Messages transitoires (showError / showSuccess).
+           En position fixe et au-dessus des modales (z-index 1000) : le bandeau
+           était auparavant inséré en tête du conteneur défilant, et se
+           retrouvait hors écran dès que la page ou une modale avait été
+           défilée — un échec d'envoi passait alors totalement inaperçu. */
+        .toast-zone {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 12px;
+            pointer-events: none;   /* la zone vide ne doit pas intercepter les clics */
+        }
+
+        .toast {
+            pointer-events: auto;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            max-width: min(600px, calc(100vw - 40px));
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        }
+
+        .toast-texte { flex: 1; }
+
+        .toast-fermer {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            color: inherit;
+            opacity: 0.65;
+            padding: 0;
+        }
+        .toast-fermer:hover { opacity: 1; }
+
+        .toast-error { background: #f8d7da; color: #721c24; }
+        .toast-success { background: #d4edda; color: #155724; }
+
         .data-status {
             background: #e3f2fd;
             color: #1976d2;
@@ -924,8 +969,8 @@
                 <textarea id="np-description" rows="3" style="width:100%;padding:10px;border:2px solid #e1e5e9;border-radius:5px;font-family:'Aptos',sans-serif;"></textarea>
             </div>
             <div class="form-group" style="margin-bottom:12px;">
-                <label>À faire (30 caractères max, affiché dans la liste)</label>
-                <input type="text" id="np-resume" maxlength="30" placeholder="Ex: relancer le syndic">
+                <label>À faire (50 caractères max, affiché dans la liste)</label>
+                <input type="text" id="np-resume" maxlength="50" placeholder="Ex: relancer le syndic">
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -993,8 +1038,8 @@
                 <h4 style="color:#2c5aa0;margin-bottom:10px;">Ajouter un suivi</h4>
                 <textarea id="suivi-new-comment" rows="2" placeholder="Note détaillée (obligatoire)..." style="width:100%;padding:10px;border:2px solid #e1e5e9;border-radius:5px;font-family:'Aptos',sans-serif;margin-bottom:10px;"></textarea>
                 <div class="form-group" style="margin-bottom:12px;">
-                    <label>À faire (30 caractères max, affiché dans la liste)</label>
-                    <input type="text" id="suivi-new-resume" maxlength="30" placeholder="Ex: relancer le syndic">
+                    <label>À faire (50 caractères max, affiché dans la liste)</label>
+                    <input type="text" id="suivi-new-resume" maxlength="50" placeholder="Ex: relancer le syndic">
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -2249,7 +2294,11 @@
                     showSuccess('Fichier joint : ' + result.nom);
                 })
                 .catch(error => {
-                    showError("Erreur lors de l'envoi du fichier. Vérifiez votre connexion internet.");
+                    // Le message générique « vérifiez votre connexion » masquait
+                    // aussi bien un refus de Drive qu'une erreur JS locale : on
+                    // affiche la cause réelle, seule utile pour diagnostiquer.
+                    showError("Erreur lors de l'envoi du fichier : "
+                        + (error && error.message ? error.message : String(error)));
                     console.error('Erreur:', error);
                 })
                 .finally(() => setButtonLoading(bouton, false));
@@ -2407,7 +2456,7 @@
                 return;
             }
             if (!resume) {
-                showError('Le champ « À faire » (30 caractères max) est obligatoire');
+                showError('Le champ « À faire » (50 caractères max) est obligatoire');
                 return;
             }
 
@@ -2696,7 +2745,7 @@
                 const noteInput = mk('textarea', { rows: 2, value: h.Note || '' });
                 noteInput.style.cssText = 'width:100%;padding:8px;border:2px solid #e1e5e9;border-radius:5px;font-family:\'Aptos\',sans-serif;margin-bottom:8px;';
 
-                const resumeInput = mk('input', { type: 'text', maxLength: 30, value: h.Resume || '' });
+                const resumeInput = mk('input', { type: 'text', maxLength: 50, value: h.Resume || '' });
                 resumeInput.style.cssText = 'width:100%;padding:8px;border:2px solid #e1e5e9;border-radius:5px;margin-bottom:8px;';
 
                 const responsableInput = mk('input', { type: 'text', value: h.Responsable || '', placeholder: 'Responsable' });
@@ -2791,7 +2840,7 @@
                 return;
             }
             if (!resume) {
-                showError('Le champ « À faire » (30 caractères max) est obligatoire');
+                showError('Le champ « À faire » (50 caractères max) est obligatoire');
                 return;
             }
             if (!responsable) {
@@ -2904,34 +2953,68 @@
                 });
         }
 
-        function getMessageContainer() {
-            const activeModal = document.querySelector('.modal-overlay.active .modal');
-            if (activeModal) return { parent: activeModal, before: activeModal.firstChild };
-            return { parent: document.querySelector('.container'), before: document.querySelector('#navigation') };
+        /**
+         * Zone d'affichage des messages, créée à la demande et rattachée au
+         * <body> : hors de tout conteneur défilant, elle reste visible quel que
+         * soit le défilement de la page ou d'une modale.
+         */
+        function zoneMessages() {
+            let zone = document.getElementById('zone-messages');
+            if (!zone) {
+                zone = document.createElement('div');
+                zone.id = 'zone-messages';
+                zone.className = 'toast-zone';
+                document.body.appendChild(zone);
+            }
+            return zone;
         }
 
+        /**
+         * Un message chasse le précédent : relancer une action efface l'erreur
+         * de la tentative d'avant, qui ne décrit plus ce qui est en cours.
+         *
+         * La classe est « toast » et non « error »/« success » : ces deux-là
+         * servent aussi à des encarts fixes dans la page (#admin-status), qu'un
+         * effacement global ne doit pas emporter.
+         */
+        function afficherMessage(message, type) {
+            document.querySelectorAll('.toast').forEach(e => e.remove());
+
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-' + type;
+            // alert est annoncé immédiatement par les lecteurs d'écran, status attend une pause.
+            toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+
+            const texte = document.createElement('span');
+            texte.className = 'toast-texte';
+            texte.textContent = message;
+
+            const fermer = document.createElement('button');
+            fermer.type = 'button';
+            fermer.className = 'toast-fermer';
+            fermer.setAttribute('aria-label', 'Fermer le message');
+            fermer.textContent = '✕';
+            fermer.onclick = function () { toast.remove(); };
+
+            toast.appendChild(texte);
+            toast.appendChild(fermer);
+            zoneMessages().appendChild(toast);
+            return toast;
+        }
+
+        /**
+         * Une erreur ne s'efface pas seule : elle doit rester lisible le temps
+         * d'être comprise et recopiée. Elle part à la fermeture explicite, ou
+         * quand une nouvelle action affiche son propre message.
+         */
         function showError(message) {
-            document.querySelectorAll('.error').forEach(e => e.remove());
-
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error';
-            errorDiv.textContent = message;
-            const target = getMessageContainer();
-            target.parent.insertBefore(errorDiv, target.before);
-
-            setTimeout(() => errorDiv.remove(), 5000);
+            return afficherMessage(message, 'error');
         }
 
         function showSuccess(message) {
-            document.querySelectorAll('.success').forEach(e => e.remove());
-
-            const successDiv = document.createElement('div');
-            successDiv.className = 'success';
-            successDiv.textContent = message;
-            const target = getMessageContainer();
-            target.parent.insertBefore(successDiv, target.before);
-
-            setTimeout(() => successDiv.remove(), 3000);
+            const toast = afficherMessage(message, 'success');
+            setTimeout(function () { toast.remove(); }, 4000);
+            return toast;
         }
 
         function openFiche(index) {
