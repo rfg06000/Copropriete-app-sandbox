@@ -257,6 +257,8 @@ function ensureSheetsExist_() {
   }
   if (points.getLastRow() === 0) {
     points.appendRow(POINTS_HEADERS);
+  } else {
+    alignerEntetes_(points, POINTS_HEADERS);
   }
 
   if (!histo) {
