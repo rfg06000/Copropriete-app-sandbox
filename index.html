@@ -255,6 +255,32 @@
             min-width: 200px;
         }
 
+        /* Sélecteur de fichier + bouton d'envoi.
+           min-width:0 sur les deux éléments : sans lui, un enfant flex garde la
+           largeur intrinsèque de son contenu (min-width:auto), et un
+           input[type=file] en réclame beaucoup — la rangée débordait alors de
+           la modale, poussant le bouton hors de la zone visible. Le passage à
+           la ligne prend le relais quand la largeur ne suffit plus. */
+        .champ-fichier {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+            width: 100%;
+        }
+        .champ-fichier input[type="file"] {
+            flex: 1 1 180px;
+            min-width: 0;
+        }
+        .btn-joindre {
+            flex: 0 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+
         .form-group label {
             font-weight: 600;
             color: #2c5aa0;
@@ -1002,9 +1028,9 @@
             </div>
             <div class="form-group" style="margin-bottom:12px;">
                 <label>Document (lien)</label>
-                <div style="display:flex;gap:8px;margin-bottom:8px;">
-                    <input type="file" id="np-fichier" style="flex:1;">
-                    <button type="button" class="calc-btn" style="white-space:nowrap;padding:8px 12px;font-size:13px;" onclick="joindreFichier('np-fichier', 'np-document', this, '')">📎 Joindre le fichier</button>
+                <div class="champ-fichier">
+                    <input type="file" id="np-fichier">
+                    <button type="button" class="calc-btn btn-joindre" onclick="joindreFichier('np-fichier', 'np-document', this, '')">📎 Joindre le fichier</button>
                 </div>
                 <input type="text" id="np-document" placeholder="Lien du document (rempli par l'envoi, ou collé à la main)" style="width:100%;">
             </div>
@@ -1050,14 +1076,14 @@
                         <label>Date d'échéance (facultative)</label>
                         <input type="date" id="suivi-new-echeance">
                     </div>
-                    <div class="form-group">
-                        <label>Document (lien)</label>
-                        <div style="display:flex;gap:8px;margin-bottom:8px;">
-                            <input type="file" id="suivi-new-fichier" style="flex:1;">
-                            <button type="button" class="calc-btn" style="white-space:nowrap;padding:8px 12px;font-size:13px;" onclick="joindreFichier('suivi-new-fichier', 'suivi-new-document', this, currentOpenSuiviId)">📎 Joindre le fichier</button>
-                        </div>
-                        <input type="text" id="suivi-new-document" placeholder="Lien du document (rempli par l'envoi, ou collé à la main)" style="width:100%;">
+                </div>
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label>Document (lien)</label>
+                    <div class="champ-fichier">
+                        <input type="file" id="suivi-new-fichier">
+                        <button type="button" class="calc-btn btn-joindre" onclick="joindreFichier('suivi-new-fichier', 'suivi-new-document', this, currentOpenSuiviId)">📎 Joindre le fichier</button>
                     </div>
+                    <input type="text" id="suivi-new-document" placeholder="Lien du document (rempli par l'envoi, ou collé à la main)" style="width:100%;">
                 </div>
                 <button class="calc-btn" onclick="submitAjoutSuivi(this)">Ajouter</button>
                 </div>
