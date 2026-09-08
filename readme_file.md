@@ -109,6 +109,19 @@ Chaque **point** (un sujet : fuite, devis, mise aux normes, contentieux...) est 
   nommé `[ID du point]_[date]_[nom d'origine]`, partagé en lecture par lien, et c'est ce lien qui est
   enregistré dans la colonne `Document` de l'entrée de suivi. Coller un lien à la main reste possible.
 - **Renommer un sujet** : possible directement depuis la fiche du point (icône ✎), tracé dans l'historique.
+- **Supprimer une entrée d'historique** : réservé aux administrateurs, en deux clics (le premier arme, le second exécute). La dernière entrée restante d'un point est refusée par le serveur — un point sans historique perdrait toute trace de son ouverture ; il faut alors supprimer le point entier. Après suppression, l'état affiché du point est recalculé depuis l'historique restant.
+- **Fiche en plein écran** : la fiche d'un point porte trois boutons de fenêtre (agrandir, réduire, fermer). L'état agrandi ne survit pas à la fermeture.
+
+## Prestataires
+
+Onglet public listant les prestataires de la copropriété : **Prestation**, **Prestataire**, **Numéro de téléphone**. Rien d'autre n'est servi sans authentification.
+
+- **Fiche d'un prestataire** : réservée aux administrateurs. Société, prestation, téléphone, coordonnées postales, numéro de contrat, date d'échéance du contrat, note libre.
+- **Contacts** : tableau de 10 lignes au maximum par prestataire (nom, téléphone, courriel, fonction), avec ajout, modification et suppression ligne par ligne. Le plafond de 10 est vérifié côté serveur, pas seulement dans l'interface.
+- **Confidentialité** : les contacts sont des données nominatives. Le bouton « Fiche » est absent du DOM pour un visiteur non administrateur, mais surtout le serveur ne sert la fiche complète et les contacts qu'à un jeton administrateur (`requireAdmin_`) — la liste publique passe par une projection explicite (`PRESTA_PUBLIC`) qui ne peut pas laisser fuiter une colonne ajoutée plus tard.
+- **Feuilles** : `Prestataires` et `PrestatairesContacts`, cette dernière rattachant chaque contact à son prestataire par son ID.
+- **Exports** : depuis Administration, « Télécharger le modèle » et « Télécharger les données actuelles » pour les deux feuilles. Ils passent par `doPost` derrière `requireAdmin_`, et non par les routes publiques `?modele` / `?donnees` utilisées pour l'état de division et les copropriétaires : exporter les contacts par une route publique republierait en CSV ce que la liste publique protège.
+- **Pas d'import CSV**, à la différence de l'état de division et des copropriétaires : les contacts sont rattachés à leur prestataire par un ID généré par le serveur, qu'un réimport écraserait en détachant silencieusement les lignes.
 
 ### Architecture technique
 

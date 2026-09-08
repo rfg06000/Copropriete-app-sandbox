@@ -152,6 +152,33 @@ const TAILLE_MAX_PIECE_JOINTE = 10 * 1024 * 1024;   // 10 Mo, comme côté clien
 // au maxlength des champs correspondants côté client.
 const RESUME_MAX = 50;
 
+const PRESTA_SHEET_NAME = 'Prestataires';
+const CONTACTS_SHEET_NAME = 'PrestatairesContacts';
+
+const PRESTA_HEADERS = [
+  'ID', 'Societe', 'Prestation', 'Telephone', 'Adresse',
+  'NumeroContrat', 'DateEcheanceContrat', 'Note', 'DateCreation', 'DateMAJ'
+];
+
+const CONTACTS_HEADERS = [
+  'ContactId', 'PrestataireId', 'Nom', 'Telephone', 'Courriel', 'Fonction'
+];
+
+/*
+ * Les seules colonnes servies sans authentification, par ?action=prestataires.
+ *
+ * Le reste de la fiche — adresse, numéro de contrat, note — et surtout le
+ * tableau de contacts, qui porte les nom, téléphone et courriel de personnes
+ * physiques, ne transitent que par doPost derrière requireAdmin_. Masquer le
+ * bouton « Fiche » dans le DOM ne protège rien : sans ce filtre, n'importe qui
+ * lirait les contacts en ouvrant l'URL /exec à la main.
+ */
+const PRESTA_PUBLIC = ['ID', 'Societe', 'Prestation', 'Telephone'];
+
+// Plafond de lignes de contact par prestataire, vérifié côté serveur et pas
+// seulement dans l'interface.
+const MAX_CONTACTS = 10;
+
 const STATUT_EN_COURS = 'En cours';
 const STATUT_CLOS = 'Clos';
 const STATUTS = [STATUT_EN_COURS, STATUT_CLOS];
@@ -199,6 +226,7 @@ const COMPTES_INITIAUX = [
 function setup() {
   ensureSheetsExist_();
   ensureAuthSheets_();
+  ensurePrestataireSheets_();
   ensurePepper_();
   const comptes = seedComptesInitiaux_();
   const migres = migrerStatutsOuvertEnCours_();
@@ -206,7 +234,8 @@ function setup() {
 
   const messages = [
     'Feuilles vérifiées : ' + [POINTS_SHEET_NAME, HISTO_SHEET_NAME, USERS_SHEET_NAME,
-      SESSIONS_SHEET_NAME, ETAT_SHEET_NAME, COPRO_SHEET_NAME].join(', '),
+      SESSIONS_SHEET_NAME, ETAT_SHEET_NAME, COPRO_SHEET_NAME,
+      PRESTA_SHEET_NAME, CONTACTS_SHEET_NAME].join(', '),
     'Comptes créés : ' + (comptes.length ? comptes.join(', ') : 'aucun (déjà présents)'),
     'Statuts "Ouvert" migrés en "' + STATUT_EN_COURS + '" : ' + migres + ' cellule(s)',
     lotsMigres
@@ -306,6 +335,36 @@ function alignerEntetes_(sheet, headers) {
   plage.setValues([headers]);
   Logger.log('En-têtes de "%s" réalignés. Avant : %s', sheet.getName(), JSON.stringify(actuels));
   return actuels;
+}
+
+let _feuillesPrestataires = null;
+
+/**
+ * Les deux feuilles du module Prestataires, créées au besoin, sur le même
+ * principe que Points/Historique : en-têtes écrits à la création, et réalignés
+ * ensuite par alignerEntetes_ pour qu'une colonne ajoutée plus tard rejoigne
+ * bien la ligne 1 d'une feuille déjà existante.
+ */
+function ensurePrestataireSheets_() {
+  if (_feuillesPrestataires) return _feuillesPrestataires;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const creer = function (nom, entetes) {
+    let sheet = ss.getSheetByName(nom);
+    if (!sheet) sheet = ss.insertSheet(nom);
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(entetes);
+    } else {
+      alignerEntetes_(sheet, entetes);
+    }
+    return sheet;
+  };
+
+  _feuillesPrestataires = {
+    prestataires: creer(PRESTA_SHEET_NAME, PRESTA_HEADERS),
+    contacts: creer(CONTACTS_SHEET_NAME, CONTACTS_HEADERS)
+  };
+  return _feuillesPrestataires;
 }
 
 function ensureAuthSheets_() {
@@ -767,6 +826,15 @@ function doGet(e) {
       return jsonOut_({ ok: true, points: points, historique: historique });
     }
 
+    /*
+     * Liste publique des prestataires : Prestation, Société et Téléphone, rien
+     * d'autre. Les colonnes de la fiche et le tableau de contacts ne passent
+     * jamais par ici — voir PRESTA_PUBLIC et l'action prestataireFiche.
+     */
+    if (action === 'prestataires') {
+      return jsonOut_({ ok: true, prestataires: prestatairesPublics_() });
+    }
+
     if (action === 'lots') {
       const reponse = readLotsPourReponse_();
       return jsonOut_({
@@ -1016,8 +1084,20 @@ function doPost(e) {
     if (action === 'create') return jsonOut_(handleCreate_(body, requireAdmin_(body)));
     if (action === 'ajoutSuivi') return jsonOut_(handleAjoutSuivi_(body, requireUser_(body)));
     if (action === 'editSuivi') return jsonOut_(handleEditSuivi_(body, requireAdmin_(body)));
+    if (action === 'deleteSuivi') return jsonOut_(handleDeleteSuivi_(body, requireAdmin_(body)));
     if (action === 'renamePoint') return jsonOut_(handleRenamePoint_(body, requireAdmin_(body)));
     if (action === 'deletePoint') return jsonOut_(handleDeletePoint_(body, requireAdmin_(body)));
+
+    // --- Prestataires : la liste réduite est publique (doGet), tout le reste,
+    // fiche et contacts nominatifs compris, passe par requireAdmin_.
+    if (action === 'prestataireFiche') return jsonOut_(handlePrestataireFiche_(body, requireAdmin_(body)));
+    if (action === 'createPrestataire') return jsonOut_(handleCreatePrestataire_(body, requireAdmin_(body)));
+    if (action === 'editPrestataire') return jsonOut_(handleEditPrestataire_(body, requireAdmin_(body)));
+    if (action === 'deletePrestataire') return jsonOut_(handleDeletePrestataire_(body, requireAdmin_(body)));
+    if (action === 'addContact') return jsonOut_(handleAddContact_(body, requireAdmin_(body)));
+    if (action === 'editContact') return jsonOut_(handleEditContact_(body, requireAdmin_(body)));
+    if (action === 'deleteContact') return jsonOut_(handleDeleteContact_(body, requireAdmin_(body)));
+    if (action === 'exportPrestataires') return jsonOut_(handleExportPrestataires_(body, requireAdmin_(body)));
 
     // --- Administration ---
     if (action === 'importEtatDivision') return jsonOut_(handleImportEtatDivision_(body, requireAdmin_(body)));
@@ -1432,6 +1512,60 @@ function handleEditSuivi_(body, user) {
   return { ok: true, id: String(pointId), avertissement: recalcul.avertissement };
 }
 
+/**
+ * deleteSuivi — supprimer une entrée d'historique : administrateurs seuls.
+ *
+ * Refuse la dernière entrée restante d'un point. La feuille Points conserve
+ * bien le sujet et la description, mais un point sans aucun historique perd
+ * toute trace de qui l'a ouvert et pourquoi ; supprimer le point entier reste
+ * possible par deletePoint, qui emporte l'historique avec lui.
+ */
+function handleDeleteSuivi_(body, user) {
+  if (!body.histoId) return { ok: false, error: 'histoId requis' };
+
+  const sheet = ensureSheetsExist_().histo;
+  const values = sheet.getDataRange().getValues();
+  const colPointId = HISTO_HEADERS.indexOf('PointId');
+
+  let rowIndex = -1;
+  let pointId = null;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(body.histoId)) {
+      rowIndex = i + 1;
+      pointId = String(values[i][colPointId]);
+      break;
+    }
+  }
+  if (rowIndex === -1) return { ok: false, error: 'Entrée introuvable: ' + body.histoId };
+
+  let restantes = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i][0] === '' || values[i][0] === null) continue;
+    if (String(values[i][colPointId]) === pointId) restantes++;
+  }
+  if (restantes <= 1) {
+    return {
+      ok: false,
+      error: "C'est la dernière entrée de ce point : elle ne peut pas être supprimée seule, "
+        + "le point perdrait toute trace de son ouverture. Supprimez le point entier "
+        + "si c'est ce que vous voulez."
+    };
+  }
+
+  sheet.deleteRow(rowIndex);
+
+  // Le cache du point (responsable, échéance, priorité, statut) est reconstruit
+  // depuis tout l'historique restant : indispensable si l'entrée supprimée était
+  // la plus récente, sans effet dans le cas contraire.
+  const recalcul = recomputePointCache_(pointId);
+  return {
+    ok: true,
+    histoId: String(body.histoId),
+    pointId: pointId,
+    avertissement: recalcul.avertissement
+  };
+}
+
 /** renamePoint — administrateurs seuls. */
 function handleRenamePoint_(body, user) {
   if (!body.id) return { ok: false, error: 'id requis' };
@@ -1710,6 +1844,294 @@ function handleRemoveUser_(body, user) {
   return { ok: true, email: cible.email };
 }
 
+/* ========================= Prestataires (serveur) ========================= */
+
+function readAllPrestataires_() {
+  const sheet = ensurePrestataireSheets_().prestataires;
+  const values = sheet.getDataRange().getValues();
+  return values.slice(1)
+    .filter(function (r) { return r[0] !== '' && r[0] !== null; })
+    .map(function (r) {
+      const obj = {};
+      PRESTA_HEADERS.forEach(function (h, i) { obj[h] = r[i] === undefined ? '' : r[i]; });
+      return obj;
+    });
+}
+
+function readAllContacts_() {
+  const sheet = ensurePrestataireSheets_().contacts;
+  const values = sheet.getDataRange().getValues();
+  return values.slice(1)
+    .filter(function (r) { return r[0] !== '' && r[0] !== null; })
+    .map(function (r) {
+      const obj = {};
+      CONTACTS_HEADERS.forEach(function (h, i) { obj[h] = r[i] === undefined ? '' : r[i]; });
+      return obj;
+    });
+}
+
+/** Projection publique : uniquement les colonnes de PRESTA_PUBLIC. */
+function prestatairesPublics_() {
+  return readAllPrestataires_().map(function (p) {
+    const vue = {};
+    PRESTA_PUBLIC.forEach(function (c) { vue[c] = p[c]; });
+    return vue;
+  });
+}
+
+/** Localise la ligne d'un prestataire. Renvoie -1 s'il est absent. */
+function ligneDuPrestataire_(sheet, id) {
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(id)) return i + 1;
+  }
+  return -1;
+}
+
+/* --- Fiche complète : administrateurs seuls --- */
+
+function handlePrestataireFiche_(body, user) {
+  if (!body.id) return { ok: false, error: 'id requis' };
+  const pid = String(body.id);
+
+  const fiche = readAllPrestataires_().filter(function (p) { return String(p.ID) === pid; })[0];
+  if (!fiche) return { ok: false, error: 'Prestataire introuvable: ' + pid };
+
+  const contacts = readAllContacts_().filter(function (c) {
+    return String(c.PrestataireId) === pid;
+  });
+
+  return { ok: true, prestataire: fiche, contacts: contacts, maxContacts: MAX_CONTACTS };
+}
+
+/* --- Écritures sur les prestataires : administrateurs seuls --- */
+
+function handleCreatePrestataire_(body, user) {
+  if (!body.societe) return { ok: false, error: 'Nom de la société requis' };
+
+  const sheet = ensurePrestataireSheets_().prestataires;
+  const id = Utilities.getUuid();
+  const maintenant = nowIso_();
+
+  sheet.appendRow([
+    id,
+    body.societe,
+    body.prestation || '',
+    body.telephone || '',
+    body.adresse || '',
+    body.numeroContrat || '',
+    body.dateEcheanceContrat || '',
+    body.note || '',
+    maintenant,
+    maintenant
+  ]);
+
+  return { ok: true, id: id };
+}
+
+function handleEditPrestataire_(body, user) {
+  if (!body.id) return { ok: false, error: 'id requis' };
+
+  const sheet = ensurePrestataireSheets_().prestataires;
+  const rowIndex = ligneDuPrestataire_(sheet, body.id);
+  if (rowIndex === -1) return { ok: false, error: 'Prestataire introuvable: ' + body.id };
+
+  // Le nom de la société identifie le prestataire dans la liste publique : on
+  // refuse de le vider, plutôt que de laisser une ligne anonyme.
+  if (Object.prototype.hasOwnProperty.call(body, 'societe') && !String(body.societe).trim()) {
+    return { ok: false, error: 'Le nom de la société ne peut pas être vide.' };
+  }
+
+  const editable = {
+    societe: 'Societe',
+    prestation: 'Prestation',
+    telephone: 'Telephone',
+    adresse: 'Adresse',
+    numeroContrat: 'NumeroContrat',
+    dateEcheanceContrat: 'DateEcheanceContrat',
+    note: 'Note'
+  };
+  const colOf = function (name) { return PRESTA_HEADERS.indexOf(name) + 1; };
+
+  Object.keys(editable).forEach(function (key) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      sheet.getRange(rowIndex, colOf(editable[key])).setValue(body[key]);
+    }
+  });
+  sheet.getRange(rowIndex, colOf('DateMAJ')).setValue(nowIso_());
+
+  return { ok: true, id: String(body.id) };
+}
+
+/**
+ * Supprime un prestataire et, avec lui, toutes ses lignes de contact : les
+ * laisser derrière produirait des orphelins que plus aucune fiche n'affiche.
+ * Même principe que deletePoint avec son historique.
+ */
+function handleDeletePrestataire_(body, user) {
+  if (!body.id) return { ok: false, error: 'id requis' };
+  const pid = String(body.id);
+  const feuilles = ensurePrestataireSheets_();
+
+  const rowIndex = ligneDuPrestataire_(feuilles.prestataires, pid);
+  if (rowIndex === -1) return { ok: false, error: 'Prestataire introuvable: ' + pid };
+  feuilles.prestataires.deleteRow(rowIndex);
+
+  const contactsValues = feuilles.contacts.getDataRange().getValues();
+  const colPresta = CONTACTS_HEADERS.indexOf('PrestataireId');
+  let contactsSupprimes = 0;
+  for (let i = contactsValues.length - 1; i >= 1; i--) {
+    if (String(contactsValues[i][colPresta]) === pid) {
+      feuilles.contacts.deleteRow(i + 1);
+      contactsSupprimes++;
+    }
+  }
+
+  return { ok: true, id: pid, contactsSupprimes: contactsSupprimes };
+}
+
+/* --- Lignes de contact : administrateurs seuls --- */
+
+function handleAddContact_(body, user) {
+  if (!body.prestataireId) return { ok: false, error: 'prestataireId requis' };
+  if (!body.nom) return { ok: false, error: 'Nom du contact requis' };
+
+  const feuilles = ensurePrestataireSheets_();
+  const pid = String(body.prestataireId);
+
+  if (ligneDuPrestataire_(feuilles.prestataires, pid) === -1) {
+    return { ok: false, error: 'Prestataire introuvable: ' + pid };
+  }
+
+  // Plafond vérifié ici et pas seulement dans l'interface : l'action est
+  // atteignable directement, le compte doit être fait sur la feuille.
+  const existants = readAllContacts_().filter(function (c) {
+    return String(c.PrestataireId) === pid;
+  }).length;
+  if (existants >= MAX_CONTACTS) {
+    return {
+      ok: false,
+      error: 'Ce prestataire a déjà ' + MAX_CONTACTS + ' contacts, le maximum. '
+        + "Supprimez-en un avant d'en ajouter un autre."
+    };
+  }
+
+  const contactId = Utilities.getUuid();
+  feuilles.contacts.appendRow([
+    contactId,
+    pid,
+    body.nom,
+    body.telephone || '',
+    body.courriel || '',
+    body.fonction || ''
+  ]);
+
+  return { ok: true, contactId: contactId, restants: MAX_CONTACTS - existants - 1 };
+}
+
+function handleEditContact_(body, user) {
+  if (!body.contactId) return { ok: false, error: 'contactId requis' };
+
+  const sheet = ensurePrestataireSheets_().contacts;
+  const values = sheet.getDataRange().getValues();
+  const colOf = function (name) { return CONTACTS_HEADERS.indexOf(name) + 1; };
+
+  let rowIndex = -1;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(body.contactId)) { rowIndex = i + 1; break; }
+  }
+  if (rowIndex === -1) return { ok: false, error: 'Contact introuvable: ' + body.contactId };
+
+  if (Object.prototype.hasOwnProperty.call(body, 'nom') && !String(body.nom).trim()) {
+    return { ok: false, error: 'Le nom du contact ne peut pas être vide.' };
+  }
+
+  const editable = { nom: 'Nom', telephone: 'Telephone', courriel: 'Courriel', fonction: 'Fonction' };
+  Object.keys(editable).forEach(function (key) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      sheet.getRange(rowIndex, colOf(editable[key])).setValue(body[key]);
+    }
+  });
+
+  return { ok: true, contactId: String(body.contactId) };
+}
+
+function handleDeleteContact_(body, user) {
+  if (!body.contactId) return { ok: false, error: 'contactId requis' };
+
+  const sheet = ensurePrestataireSheets_().contacts;
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(body.contactId)) {
+      sheet.deleteRow(i + 1);
+      return { ok: true, contactId: String(body.contactId) };
+    }
+  }
+  return { ok: false, error: 'Contact introuvable: ' + body.contactId };
+}
+
+/* --- Exports CSV : administrateurs seuls --- */
+
+/*
+ * Volontairement servis par doPost, et non par les actions publiques ?modele /
+ * ?donnees qui alimentent l'état de division et les copropriétaires : exporter
+ * PrestatairesContacts par une route publique reviendrait à republier en CSV
+ * exactement les données nominatives que PRESTA_PUBLIC protège.
+ *
+ * Pas d'import symétrique : les contacts sont rattachés à leur prestataire par
+ * un ID généré ici, qu'un réimport écraserait en détachant silencieusement les
+ * lignes. L'état de division et les copropriétaires n'ont pas ce risque, leurs
+ * feuilles n'étant référencées par aucune autre.
+ */
+const EXPORTS_PRESTATAIRES = {
+  prestataires: {
+    entetes: PRESTA_HEADERS,
+    exemple: ['(généré)', 'Ascenseurs Dupont', 'Ascenseur', '01 23 45 67 89',
+      '12 rue des Lilas, 75000 Paris', 'C-2024-118', '2027-06-30',
+      'Contrat de maintenance annuel', '(généré)', '(généré)'],
+    prefixe: 'prestataires'
+  },
+  prestatairesContacts: {
+    entetes: CONTACTS_HEADERS,
+    exemple: ['(généré)', 'ID du prestataire', 'DUPONT Marie', '01 23 45 67 90',
+      'marie.dupont@example.com', 'Responsable technique'],
+    prefixe: 'prestataires-contacts'
+  }
+};
+
+function handleExportPrestataires_(body, user) {
+  const config = EXPORTS_PRESTATAIRES[body.feuille];
+  if (!config) return { ok: false, error: 'Export inconnu : ' + body.feuille };
+
+  if (body.mode === 'modele') {
+    return {
+      ok: true,
+      entetes: config.entetes,
+      lignes: [config.exemple],
+      nomFichier: 'modele-' + config.prefixe + '.csv'
+    };
+  }
+
+  const sheet = body.feuille === 'prestataires'
+    ? ensurePrestataireSheets_().prestataires
+    : ensurePrestataireSheets_().contacts;
+  const values = sheet.getDataRange().getValues();
+  const lignes = values.slice(1)
+    .filter(function (r) { return r[0] !== '' && r[0] !== null; })
+    .map(function (r) {
+      return config.entetes.map(function (h, i) {
+        return r[i] === undefined || r[i] === null ? '' : String(r[i]);
+      });
+    });
+
+  return {
+    ok: true,
+    entetes: config.entetes,
+    lignes: lignes,
+    nomFichier: config.prefixe + '-' + nowIso_().slice(0, 10) + '.csv'
+  };
+}
+
 /* ============================ Diagnostics ============================ */
 
 /**
@@ -1773,4 +2195,6 @@ function diagnostiquerFeuille_(nomFeuille, headers) {
 function diagnostiquerSuivi() {
   diagnostiquerFeuille_(POINTS_SHEET_NAME, POINTS_HEADERS);
   diagnostiquerFeuille_(HISTO_SHEET_NAME, HISTO_HEADERS);
+  diagnostiquerFeuille_(PRESTA_SHEET_NAME, PRESTA_HEADERS);
+  diagnostiquerFeuille_(CONTACTS_SHEET_NAME, CONTACTS_HEADERS);
 }

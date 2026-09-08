@@ -413,6 +413,23 @@
         }
         .toast-fermer:hover { opacity: 1; }
 
+        /* Suppression d'une entrée d'historique, en deux clics : le bouton armé
+           change de libellé et de couleur, comme celui de suppression d'un point. */
+        .histo-suppr {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #c0392b;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .histo-suppr-armee {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 3px 8px;
+            border-radius: 5px;
+        }
+
         .toast-error { background: #f8d7da; color: #721c24; }
         .toast-success { background: #d4edda; color: #155724; }
 
@@ -463,6 +480,43 @@
         .modal.modal-wide {
             max-width: 900px;
         }
+
+        /* Fiche agrandie. La modale occupe la fenêtre entière ; les coins
+           carrés et l'absence de marge signalent le changement d'état aussi
+           clairement que les boutons eux-mêmes. */
+        .modal.plein-ecran {
+            max-width: none;
+            width: 100%;
+            height: 100%;
+            max-height: 100%;
+            border-radius: 0;
+        }
+
+        /* Les trois boutons de fenêtre, groupés en haut à droite. Ils
+           remplacent l'ancien bouton de fermeture isolé (.modal-close), qui
+           reste utilisé par les autres modales. */
+        .modal-boutons-fenetre {
+            position: absolute;
+            top: 12px; right: 14px;
+            display: flex;
+            gap: 4px;
+            z-index: 1;
+        }
+        .modal-btn-fenetre {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: #555;
+        }
+        .modal-btn-fenetre:hover { background: #eceff1; }
+        .modal-btn-fermer { font-size: 20px; }
+        .modal-btn-fermer:hover { background: #f8d7da; color: #721c24; }
+        .modal-btn-fenetre[disabled] { opacity: 0.3; cursor: default; }
+        .modal-btn-fenetre[disabled]:hover { background: none; }
         .modal-close {
             position: absolute;
             top: 15px; right: 20px;
@@ -707,6 +761,7 @@
             <button class="nav-btn active" onclick="showPage('lots', this)">Liste des lots</button>
             <button class="nav-btn" onclick="showPage('calcul', this)">Calcul de votre QP des travaux</button>
             <button class="nav-btn" onclick="showPage('suivi', this)">Points de suivi</button>
+            <button class="nav-btn" onclick="showPage('prestataires', this)">Prestataires</button>
         </div>
 
         <div id="admin-page" class="page">
@@ -779,6 +834,30 @@
 
                 <div id="admin-status" class="data-status" style="display: none;">
                     Aucun fichier chargé
+                </div>
+
+                <div class="admin-section">
+                    <h3>Prestataires</h3>
+                    <p class="info-note" style="margin-bottom:12px;">
+                        Export seulement : les prestataires et leurs contacts se créent et se
+                        modifient depuis l'onglet Prestataires. Il n'y a pas d'import CSV ici,
+                        car les contacts sont rattachés à leur prestataire par un identifiant
+                        généré par le serveur, qu'un réimport écraserait en détachant
+                        silencieusement les lignes.
+                    </p>
+                    <h4>Prestataires</h4>
+                    <button class="calc-btn" onclick="telechargerPrestataires('prestataires', 'modele', this)" style="margin-bottom:12px;">Télécharger le modèle</button>
+                    <button class="calc-btn" onclick="telechargerPrestataires('prestataires', 'donnees', this)" style="margin-bottom:12px;margin-left:10px;">Télécharger les données actuelles</button>
+
+                    <div style="border-top:2px solid #e1e5e9;padding-top:15px;margin-top:5px;">
+                        <h4>Contacts des prestataires</h4>
+                        <p class="info-note" style="margin-bottom:12px;">
+                            Ce fichier contient des données nominatives (nom, téléphone, courriel).
+                            Il n'est téléchargeable que par un administrateur connecté.
+                        </p>
+                        <button class="calc-btn" onclick="telechargerPrestataires('prestatairesContacts', 'modele', this)" style="margin-bottom:12px;">Télécharger le modèle</button>
+                        <button class="calc-btn" onclick="telechargerPrestataires('prestatairesContacts', 'donnees', this)" style="margin-bottom:12px;margin-left:10px;">Télécharger les données actuelles</button>
+                    </div>
                 </div>
 
                 <div class="admin-section">
@@ -972,6 +1051,37 @@
         </div>
     </div>
 
+    <!-- Onglet Prestataires : liste publique (Prestation / Prestataire /
+         Téléphone). Le bouton « Fiche » n'est ajouté au DOM que pour un
+         administrateur, et le serveur ne sert la fiche complète et les contacts
+         qu'à un jeton admin — voir PRESTA_PUBLIC dans Code.gs. -->
+    <div id="prestataires-page" class="page">
+        <div class="filters">
+            <div class="filter-group">
+                <label>Recherche (prestation ou société) :</label>
+                <input type="text" id="prestaSearchFilter" placeholder="Mot-clé" oninput="filterPrestataires()">
+            </div>
+            <div class="filter-group" id="presta-new-container" style="display:none;">
+                <label>&nbsp;</label>
+                <button class="calc-btn" onclick="openNouveauPrestataireForm()">+ Nouveau prestataire</button>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table id="prestatairesTable">
+                <thead>
+                    <tr>
+                        <th>Prestation</th>
+                        <th>Prestataire</th>
+                        <th>Numéro de téléphone</th>
+                        <th id="presta-col-fiche" style="display:none;">Fiche</th>
+                    </tr>
+                </thead>
+                <tbody id="prestatairesTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Modale fiche lot -->
     <div class="modal-overlay" id="ficheModal" onclick="closeFicheModal(event)">
         <div class="modal">
@@ -1041,8 +1151,12 @@
     <!-- Modale fiche point de suivi (détail + historique + ajout de suivi) -->
     <div class="modal-overlay" id="suiviFicheModal" onclick="closeSuiviFicheModal(event)">
         <div class="modal modal-wide">
-            <button class="modal-close" onclick="document.getElementById('suiviFicheModal').classList.remove('active')">✕</button>
-            <h3 id="suivi-modal-title" style="display:flex;align-items:center;gap:10px;">
+            <div class="modal-boutons-fenetre">
+                <button type="button" id="suivi-btn-reduire" class="modal-btn-fenetre" onclick="basculerPleinEcranFiche(false)" title="Réduire à la taille normale" disabled>🗕</button>
+                <button type="button" id="suivi-btn-agrandir" class="modal-btn-fenetre" onclick="basculerPleinEcranFiche(true)" title="Agrandir en plein écran">🗖</button>
+                <button type="button" class="modal-btn-fenetre modal-btn-fermer" onclick="fermerFicheSuivi()" title="Fermer">✕</button>
+            </div>
+            <h3 id="suivi-modal-title" style="display:flex;align-items:center;gap:10px;padding-right:110px;">
                 <span id="suivi-modal-title-text">Point de suivi</span>
                 <button type="button" id="suivi-rename-btn" onclick="toggleRenameSuivi()" style="background:none;border:none;cursor:pointer;font-size:16px;" title="Renommer le sujet">✎</button>
                 <button type="button" id="suivi-delete-btn" onclick="confirmDeletePoint()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#c0392b;margin-left:auto;" title="Supprimer ce point">🗑️</button>
@@ -1088,6 +1202,140 @@
                 <button class="calc-btn" onclick="submitAjoutSuivi(this)">Ajouter</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Modale fiche prestataire : administrateurs seuls. Le contenu est
+         entièrement construit par le serveur (action prestataireFiche), jamais
+         depuis la liste publique, qui ne porte pas ces colonnes. -->
+    <div class="modal-overlay" id="prestataireFicheModal" onclick="closePrestataireFicheModal(event)">
+        <div class="modal modal-wide">
+            <button class="modal-close" onclick="document.getElementById('prestataireFicheModal').classList.remove('active')">✕</button>
+            <h3 id="presta-modal-title" style="padding-right:40px;">Fiche prestataire</h3>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Nom de la société</label>
+                    <input type="text" id="pf-societe">
+                </div>
+                <div class="form-group">
+                    <label>Prestation</label>
+                    <input type="text" id="pf-prestation">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Numéro de téléphone (affiché dans la liste publique)</label>
+                    <input type="text" id="pf-telephone">
+                </div>
+                <div class="form-group">
+                    <label>Numéro de contrat</label>
+                    <input type="text" id="pf-numeroContrat">
+                </div>
+                <div class="form-group">
+                    <label>Date d'échéance du contrat</label>
+                    <input type="date" id="pf-dateEcheanceContrat">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label>Coordonnées postales</label>
+                <input type="text" id="pf-adresse" style="width:100%;">
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label>Note</label>
+                <textarea id="pf-note" rows="3" style="width:100%;padding:10px;border:2px solid #e1e5e9;border-radius:5px;font-family:'Aptos',sans-serif;"></textarea>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button class="calc-btn" id="pf-save-btn" onclick="submitPrestataire(this)">Enregistrer</button>
+                <button type="button" id="pf-delete-btn" class="histo-suppr" style="font-size:13px;margin-left:auto;" onclick="confirmDeletePrestataire(this)">🗑️ Supprimer ce prestataire</button>
+            </div>
+
+            <div style="margin-top:20px;border-top:2px solid #e1e5e9;padding-top:15px;">
+                <h4 style="color:#2c5aa0;margin-bottom:10px;">
+                    Contacts <span id="pf-contacts-compte" style="font-weight:normal;font-size:13px;color:#666;"></span>
+                </h4>
+                <div class="table-container">
+                    <table id="prestaContactsTable">
+                        <thead>
+                            <tr>
+                                <th>Nom</th>
+                                <th>Numéro de téléphone</th>
+                                <th>Courriel</th>
+                                <th>Fonction</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="prestaContactsBody"></tbody>
+                    </table>
+                </div>
+
+                <div id="pf-contact-ajout" style="margin-top:12px;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Nom</label>
+                            <input type="text" id="pc-nom">
+                        </div>
+                        <div class="form-group">
+                            <label>Téléphone</label>
+                            <input type="text" id="pc-telephone">
+                        </div>
+                        <div class="form-group">
+                            <label>Courriel</label>
+                            <input type="email" id="pc-courriel">
+                        </div>
+                        <div class="form-group">
+                            <label>Fonction</label>
+                            <input type="text" id="pc-fonction">
+                        </div>
+                    </div>
+                    <button class="calc-btn" style="padding:6px 15px;font-size:14px;" onclick="submitAjoutContact(this)">+ Ajouter ce contact</button>
+                </div>
+                <div id="pf-contact-plein" class="info-note" style="display:none;">
+                    Ce prestataire a atteint le maximum de 10 contacts. Supprimez-en un pour pouvoir en ajouter un autre.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modale nouveau prestataire : administrateurs seuls. -->
+    <div class="modal-overlay" id="nouveauPrestataireModal" onclick="closeNouveauPrestataireModal(event)">
+        <div class="modal">
+            <button class="modal-close" onclick="document.getElementById('nouveauPrestataireModal').classList.remove('active')">✕</button>
+            <h3>Nouveau prestataire</h3>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label>Nom de la société</label>
+                <input type="text" id="npr-societe" placeholder="Ex: Ascenseurs Dupont">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Prestation</label>
+                    <input type="text" id="npr-prestation" placeholder="Ex: Ascenseur">
+                </div>
+                <div class="form-group">
+                    <label>Numéro de téléphone</label>
+                    <input type="text" id="npr-telephone">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label>Coordonnées postales</label>
+                <input type="text" id="npr-adresse" style="width:100%;">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Numéro de contrat</label>
+                    <input type="text" id="npr-numeroContrat">
+                </div>
+                <div class="form-group">
+                    <label>Date d'échéance du contrat</label>
+                    <input type="date" id="npr-dateEcheanceContrat">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label>Note</label>
+                <textarea id="npr-note" rows="3" style="width:100%;padding:10px;border:2px solid #e1e5e9;border-radius:5px;font-family:'Aptos',sans-serif;"></textarea>
+            </div>
+            <button class="calc-btn" onclick="submitNouveauPrestataire(this)">Créer le prestataire</button>
         </div>
     </div>
 
@@ -1373,6 +1621,10 @@
             // retirés du rendu, pas seulement désactivés.
             document.getElementById('nav-admin').style.display = estAdmin() ? '' : 'none';
             document.getElementById('suivi-new-point-container').style.display = estAdmin() ? '' : 'none';
+            document.getElementById('presta-new-container').style.display = estAdmin() ? '' : 'none';
+            // La colonne « Fiche » est ajoutee ou retiree du DOM selon les
+            // droits : un changement de session doit la faire suivre.
+            if (prestatairesData.length) filterPrestataires();
             document.getElementById('admin-content').style.display = estAdmin() ? 'block' : 'none';
             document.getElementById('admin-refuse').style.display = estAdmin() ? 'none' : 'block';
 
@@ -1703,10 +1955,14 @@
                 subtitle.textContent = 'Calcul de votre quote-part des travaux';
             } else if (page === 'suivi') {
                 subtitle.textContent = 'Points de suivi';
+            } else if (page === 'prestataires') {
+                subtitle.textContent = 'Prestataires de la copropriété';
             }
 
             if (page === 'admin') {
                 loadUsers();
+            } else if (page === 'prestataires') {
+                loadPrestataires();
             } else if (page === 'suivi') {
                 loadSuiviData();
             }
@@ -2707,7 +2963,9 @@
 
                 headerRow.appendChild(titreCol);
 
-                // Corriger une entrée déjà enregistrée : administrateurs seuls.
+                // Corriger ou supprimer une entrée déjà enregistrée :
+                // administrateurs seuls. Le serveur revérifie (requireAdmin_) —
+                // l'absence des boutons dans le DOM n'est qu'un confort.
                 if (estAdmin()) {
                     const editBtn = document.createElement('button');
                     editBtn.type = 'button';
@@ -2715,6 +2973,13 @@
                     editBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:#4a90e2;font-size:12px;white-space:nowrap;';
                     editBtn.onclick = () => toggleEditHisto(h.HistoId);
                     headerRow.appendChild(editBtn);
+
+                    const supprBtn = document.createElement('button');
+                    supprBtn.type = 'button';
+                    supprBtn.className = 'histo-suppr';
+                    supprBtn.textContent = '🗑️ Supprimer';
+                    supprBtn.onclick = () => confirmDeleteSuivi(h.HistoId, supprBtn);
+                    headerRow.appendChild(supprBtn);
                 }
 
                 entryDiv.appendChild(headerRow);
@@ -2788,8 +3053,25 @@
                     statutSelect.appendChild(opt);
                 });
 
-                const documentInput = mk('input', { type: 'text', value: h.Document || '', placeholder: 'Lien document' });
+                // Même mécanisme de pièce jointe que les formulaires de
+                // création : joindreFichier adresse ses deux champs par leur
+                // id, d'où des id dérivés de l'HistoId, uniques dans la page.
+                const documentInput = mk('input', {
+                    type: 'text',
+                    id: 'histo-document-' + histoId,
+                    value: h.Document || '',
+                    placeholder: 'Lien du document (rempli par l\'envoi, ou collé à la main)'
+                });
                 documentInput.style.cssText = 'width:100%;padding:8px;border:2px solid #e1e5e9;border-radius:5px;margin-bottom:8px;';
+
+                const zoneFichier = mk('div', { className: 'champ-fichier' });
+                const fichierInput = mk('input', { type: 'file', id: 'histo-fichier-' + histoId });
+                const joindreBtn = mk('button', { type: 'button', textContent: '📎 Joindre le fichier' });
+                joindreBtn.className = 'calc-btn btn-joindre';
+                joindreBtn.onclick = () => joindreFichier(
+                    'histo-fichier-' + histoId, 'histo-document-' + histoId, joindreBtn, currentOpenSuiviId);
+                zoneFichier.appendChild(fichierInput);
+                zoneFichier.appendChild(joindreBtn);
 
                 const saveBtn = mk('button', { type: 'button', textContent: 'Enregistrer' });
                 saveBtn.className = 'calc-btn';
@@ -2811,7 +3093,7 @@
 
                 container.appendChild(label('Note'));
                 container.appendChild(noteInput);
-                container.appendChild(label('À faire (30 car. max)'));
+                container.appendChild(label('À faire (50 car. max)'));
                 container.appendChild(resumeInput);
                 container.appendChild(label('Responsable / Échéance / Statut'));
                 const row = mk('div', {});
@@ -2820,6 +3102,7 @@
                 row.appendChild(statutSelect);
                 container.appendChild(row);
                 container.appendChild(label('Document (lien)'));
+                container.appendChild(zoneFichier);
                 container.appendChild(documentInput);
                 container.appendChild(saveBtn);
             }
@@ -2852,7 +3135,7 @@
 
         function closeSuiviFicheModal(event) {
             if (event.target === document.getElementById('suiviFicheModal')) {
-                document.getElementById('suiviFicheModal').classList.remove('active');
+                fermerFicheSuivi();
             }
         }
 
@@ -2935,6 +3218,82 @@
 
         let deleteConfirmPending = false;
 
+        /**
+         * Plein écran de la fiche d'un point.
+         *
+         * « Réduire » ramène à la taille normale et n'a donc de sens qu'une
+         * fois agrandi : les deux boutons se désactivent mutuellement plutôt
+         * que de disparaître, pour que leur position ne bouge pas.
+         */
+        function basculerPleinEcranFiche(agrandir) {
+            const box = document.querySelector('#suiviFicheModal .modal');
+            if (!box) return;
+            box.classList.toggle('plein-ecran', !!agrandir);
+            document.getElementById('suivi-btn-agrandir').disabled = !!agrandir;
+            document.getElementById('suivi-btn-reduire').disabled = !agrandir;
+        }
+
+        function fermerFicheSuivi() {
+            document.getElementById('suiviFicheModal').classList.remove('active');
+            // L'état agrandi ne doit pas survivre à la fermeture : la fiche
+            // suivante s'ouvrirait en plein écran sans que rien ne l'ait demandé.
+            basculerPleinEcranFiche(false);
+        }
+
+        let deleteSuiviConfirmPending = null;
+
+        /**
+         * Suppression d'une entrée d'historique, en deux temps comme pour la
+         * suppression d'un point : le premier clic arme, le second exécute.
+         * Une confirmation en deux clics plutôt qu'un window.confirm, qui
+         * bloquerait la page.
+         */
+        function confirmDeleteSuivi(histoId, bouton) {
+            if (deleteSuiviConfirmPending !== histoId) {
+                resetDeleteSuiviConfirm();
+                deleteSuiviConfirmPending = histoId;
+                bouton.textContent = 'Confirmer ?';
+                bouton.classList.add('histo-suppr-armee');
+                return;
+            }
+            executeDeleteSuivi(histoId, bouton);
+        }
+
+        function resetDeleteSuiviConfirm() {
+            deleteSuiviConfirmPending = null;
+            document.querySelectorAll('.histo-suppr').forEach(b => {
+                b.textContent = '🗑️ Supprimer';
+                b.classList.remove('histo-suppr-armee');
+            });
+        }
+
+        function executeDeleteSuivi(histoId, bouton) {
+            setButtonLoading(bouton, true, 'Suppression...');
+
+            apiPost('deleteSuivi', { histoId: histoId })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors de la suppression : ' + result.error);
+                        return;
+                    }
+                    showSuccess('Entrée supprimée');
+                    signalerAvertissement(result);
+                    // Le point a pu changer d'état si l'entrée supprimée était
+                    // la plus récente : on recharge la liste et la fiche.
+                    loadSuiviData();
+                    setTimeout(() => openSuiviFiche(currentOpenSuiviId), 300);
+                })
+                .catch(error => {
+                    showError('Erreur lors de la suppression : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => {
+                    setButtonLoading(bouton, false);
+                    resetDeleteSuiviConfirm();
+                });
+        }
+
         function resetDeleteConfirm() {
             deleteConfirmPending = false;
             const btn = document.getElementById('suivi-delete-btn');
@@ -2977,6 +3336,474 @@
                     setButtonLoading(btn, false);
                     resetDeleteConfirm();
                 });
+        }
+
+        /* ========================= Prestataires ========================= */
+
+        /*
+         * La liste est publique et ne porte que Prestation, Société et
+         * Téléphone : c'est tout ce que le serveur accepte de servir sans
+         * jeton. La fiche complète et les contacts nominatifs sont demandés
+         * séparément, par une action que requireAdmin_ protège — masquer le
+         * bouton « Fiche » ne serait qu'un habillage.
+         */
+        let prestatairesData = [];
+        let currentOpenPrestataireId = null;
+        let prestataireContacts = [];
+        let deletePrestataireConfirmPending = false;
+
+        function loadPrestataires() {
+            return apiGet('prestataires')
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors du chargement des prestataires : ' + result.error);
+                        return;
+                    }
+                    prestatairesData = result.prestataires || [];
+                    filterPrestataires();
+                })
+                .catch(error => {
+                    showError('Erreur lors du chargement des prestataires : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                });
+        }
+
+        function filterPrestataires() {
+            const recherche = (document.getElementById('prestaSearchFilter').value || '')
+                .trim().toLowerCase();
+
+            const lignes = prestatairesData.filter(p => {
+                if (!recherche) return true;
+                return String(p.Prestation || '').toLowerCase().includes(recherche)
+                    || String(p.Societe || '').toLowerCase().includes(recherche);
+            }).sort((a, b) => String(a.Prestation || '').localeCompare(String(b.Prestation || ''), 'fr'));
+
+            const tbody = document.getElementById('prestatairesTableBody');
+            tbody.innerHTML = '';
+
+            // Colonne « Fiche » présente dans le DOM pour les seuls admins,
+            // en-tête comprise, pour ne pas laisser une colonne vide aux autres.
+            const admin = estAdmin();
+            document.getElementById('presta-col-fiche').style.display = admin ? '' : 'none';
+
+            if (!lignes.length) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = admin ? 4 : 3;
+                td.textContent = prestatairesData.length
+                    ? 'Aucun prestataire ne correspond à cette recherche.'
+                    : 'Aucun prestataire enregistré.';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+                return;
+            }
+
+            lignes.forEach(p => {
+                const tr = document.createElement('tr');
+                [p.Prestation, p.Societe, p.Telephone].forEach(valeur => {
+                    const td = document.createElement('td');
+                    td.textContent = valeur || '';
+                    tr.appendChild(td);
+                });
+
+                if (admin) {
+                    const td = document.createElement('td');
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn-fiche';
+                    btn.textContent = 'Fiche';
+                    btn.onclick = () => openPrestataireFiche(p.ID);
+                    td.appendChild(btn);
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        /* --- Fiche : lecture et enregistrement --- */
+
+        function openPrestataireFiche(id) {
+            currentOpenPrestataireId = String(id);
+            resetDeletePrestataireConfirm();
+
+            return apiPost('prestataireFiche', { id: currentOpenPrestataireId })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Impossible d\'ouvrir la fiche : ' + result.error);
+                        return;
+                    }
+                    remplirFichePrestataire(result.prestataire, result.contacts || []);
+                    document.getElementById('prestataireFicheModal').classList.add('active');
+                })
+                .catch(error => {
+                    showError('Impossible d\'ouvrir la fiche : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                });
+        }
+
+        function remplirFichePrestataire(p, contacts) {
+            document.getElementById('presta-modal-title').textContent = p.Societe || 'Fiche prestataire';
+            const champs = {
+                'pf-societe': p.Societe,
+                'pf-prestation': p.Prestation,
+                'pf-telephone': p.Telephone,
+                'pf-adresse': p.Adresse,
+                'pf-numeroContrat': p.NumeroContrat,
+                'pf-note': p.Note
+            };
+            Object.keys(champs).forEach(id => {
+                document.getElementById(id).value = champs[id] || '';
+            });
+            // Un input[type=date] n'accepte que AAAA-MM-JJ : une date stockée
+            // avec une heure serait silencieusement ignorée.
+            document.getElementById('pf-dateEcheanceContrat').value =
+                String(p.DateEcheanceContrat || '').slice(0, 10);
+
+            prestataireContacts = contacts;
+            afficherContacts();
+        }
+
+        function submitPrestataire(button) {
+            const societe = document.getElementById('pf-societe').value.trim();
+            if (!societe) {
+                showError('Le nom de la société est obligatoire');
+                return;
+            }
+            setButtonLoading(button, true, 'Enregistrement...');
+
+            apiPost('editPrestataire', {
+                id: currentOpenPrestataireId,
+                societe: societe,
+                prestation: document.getElementById('pf-prestation').value.trim(),
+                telephone: document.getElementById('pf-telephone').value.trim(),
+                adresse: document.getElementById('pf-adresse').value.trim(),
+                numeroContrat: document.getElementById('pf-numeroContrat').value.trim(),
+                dateEcheanceContrat: document.getElementById('pf-dateEcheanceContrat').value,
+                note: document.getElementById('pf-note').value.trim()
+            })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors de l\'enregistrement : ' + result.error);
+                        return;
+                    }
+                    showSuccess('Prestataire enregistré');
+                    document.getElementById('presta-modal-title').textContent = societe;
+                    loadPrestataires();
+                })
+                .catch(error => {
+                    showError('Erreur lors de l\'enregistrement : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => setButtonLoading(button, false));
+        }
+
+        function closePrestataireFicheModal(event) {
+            if (event.target === document.getElementById('prestataireFicheModal')) {
+                document.getElementById('prestataireFicheModal').classList.remove('active');
+            }
+        }
+
+        /* --- Suppression d'un prestataire, en deux clics --- */
+
+        function resetDeletePrestataireConfirm() {
+            deletePrestataireConfirmPending = false;
+            const btn = document.getElementById('pf-delete-btn');
+            if (btn) {
+                btn.textContent = '🗑️ Supprimer ce prestataire';
+                btn.classList.remove('histo-suppr-armee');
+            }
+        }
+
+        function confirmDeletePrestataire(bouton) {
+            if (!deletePrestataireConfirmPending) {
+                deletePrestataireConfirmPending = true;
+                bouton.textContent = 'Confirmer la suppression ? (contacts compris)';
+                bouton.classList.add('histo-suppr-armee');
+                return;
+            }
+            setButtonLoading(bouton, true, 'Suppression...');
+
+            apiPost('deletePrestataire', { id: currentOpenPrestataireId })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors de la suppression : ' + result.error);
+                        return;
+                    }
+                    document.getElementById('prestataireFicheModal').classList.remove('active');
+                    showSuccess(result.contactsSupprimes
+                        ? 'Prestataire supprimé, avec ses ' + result.contactsSupprimes + ' contact(s)'
+                        : 'Prestataire supprimé');
+                    loadPrestataires();
+                })
+                .catch(error => {
+                    showError('Erreur lors de la suppression : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => {
+                    setButtonLoading(bouton, false);
+                    resetDeletePrestataireConfirm();
+                });
+        }
+
+        /* --- Création --- */
+
+        function openNouveauPrestataireForm() {
+            ['npr-societe', 'npr-prestation', 'npr-telephone', 'npr-adresse',
+             'npr-numeroContrat', 'npr-dateEcheanceContrat', 'npr-note']
+                .forEach(id => { document.getElementById(id).value = ''; });
+            document.getElementById('nouveauPrestataireModal').classList.add('active');
+        }
+
+        function closeNouveauPrestataireModal(event) {
+            if (event.target === document.getElementById('nouveauPrestataireModal')) {
+                document.getElementById('nouveauPrestataireModal').classList.remove('active');
+            }
+        }
+
+        function submitNouveauPrestataire(button) {
+            const societe = document.getElementById('npr-societe').value.trim();
+            if (!societe) {
+                showError('Le nom de la société est obligatoire');
+                return;
+            }
+            setButtonLoading(button, true, 'Création...');
+
+            apiPost('createPrestataire', {
+                societe: societe,
+                prestation: document.getElementById('npr-prestation').value.trim(),
+                telephone: document.getElementById('npr-telephone').value.trim(),
+                adresse: document.getElementById('npr-adresse').value.trim(),
+                numeroContrat: document.getElementById('npr-numeroContrat').value.trim(),
+                dateEcheanceContrat: document.getElementById('npr-dateEcheanceContrat').value,
+                note: document.getElementById('npr-note').value.trim()
+            })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors de la création : ' + result.error);
+                        return;
+                    }
+                    document.getElementById('nouveauPrestataireModal').classList.remove('active');
+                    showSuccess('Prestataire créé');
+                    return loadPrestataires().then(() => openPrestataireFiche(result.id));
+                })
+                .catch(error => {
+                    showError('Erreur lors de la création : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => setButtonLoading(button, false));
+        }
+
+        /* --- Contacts : au plus MAX_CONTACTS lignes, plafond revérifié serveur --- */
+
+        const MAX_CONTACTS = 10;
+
+        function afficherContacts() {
+            const tbody = document.getElementById('prestaContactsBody');
+            tbody.innerHTML = '';
+
+            document.getElementById('pf-contacts-compte').textContent =
+                '(' + prestataireContacts.length + ' / ' + MAX_CONTACTS + ')';
+
+            const plein = prestataireContacts.length >= MAX_CONTACTS;
+            document.getElementById('pf-contact-ajout').style.display = plein ? 'none' : '';
+            document.getElementById('pf-contact-plein').style.display = plein ? 'block' : 'none';
+
+            if (!prestataireContacts.length) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 5;
+                td.textContent = 'Aucun contact enregistré pour ce prestataire.';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+                return;
+            }
+
+            prestataireContacts.forEach(c => {
+                const tr = document.createElement('tr');
+
+                // Chaque cellule est un champ : la modification d'une ligne se
+                // fait sur place, et n'est envoyée qu'au clic sur « Enregistrer ».
+                const champs = {};
+                [['Nom', 'nom'], ['Telephone', 'telephone'],
+                 ['Courriel', 'courriel'], ['Fonction', 'fonction']].forEach(([colonne, cle]) => {
+                    const td = document.createElement('td');
+                    const input = document.createElement('input');
+                    input.type = cle === 'courriel' ? 'email' : 'text';
+                    input.value = c[colonne] || '';
+                    input.style.cssText = 'width:100%;padding:6px;border:1px solid #e1e5e9;border-radius:4px;';
+                    champs[cle] = input;
+                    td.appendChild(input);
+                    tr.appendChild(td);
+                });
+
+                const tdActions = document.createElement('td');
+                tdActions.style.whiteSpace = 'nowrap';
+
+                const saveBtn = document.createElement('button');
+                saveBtn.type = 'button';
+                saveBtn.className = 'btn-fiche';
+                saveBtn.textContent = 'Enregistrer';
+                saveBtn.onclick = () => submitEditContact(c.ContactId, champs, saveBtn);
+                tdActions.appendChild(saveBtn);
+
+                const supprBtn = document.createElement('button');
+                supprBtn.type = 'button';
+                supprBtn.className = 'histo-suppr contact-suppr';
+                supprBtn.textContent = '🗑️';
+                supprBtn.title = 'Supprimer ce contact';
+                supprBtn.style.marginLeft = '6px';
+                supprBtn.onclick = () => confirmDeleteContact(c.ContactId, supprBtn);
+                tdActions.appendChild(supprBtn);
+
+                tr.appendChild(tdActions);
+                tbody.appendChild(tr);
+            });
+        }
+
+        function submitAjoutContact(button) {
+            const nom = document.getElementById('pc-nom').value.trim();
+            if (!nom) {
+                showError('Le nom du contact est obligatoire');
+                return;
+            }
+            setButtonLoading(button, true, 'Ajout...');
+
+            apiPost('addContact', {
+                prestataireId: currentOpenPrestataireId,
+                nom: nom,
+                telephone: document.getElementById('pc-telephone').value.trim(),
+                courriel: document.getElementById('pc-courriel').value.trim(),
+                fonction: document.getElementById('pc-fonction').value.trim()
+            })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors de l\'ajout : ' + result.error);
+                        return;
+                    }
+                    ['pc-nom', 'pc-telephone', 'pc-courriel', 'pc-fonction']
+                        .forEach(id => { document.getElementById(id).value = ''; });
+                    showSuccess('Contact ajouté');
+                    return rechargerContacts();
+                })
+                .catch(error => {
+                    showError('Erreur lors de l\'ajout : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => setButtonLoading(button, false));
+        }
+
+        function submitEditContact(contactId, champs, button) {
+            const nom = champs.nom.value.trim();
+            if (!nom) {
+                showError('Le nom du contact ne peut pas être vide');
+                return;
+            }
+            setButtonLoading(button, true, '...');
+
+            apiPost('editContact', {
+                contactId: contactId,
+                nom: nom,
+                telephone: champs.telephone.value.trim(),
+                courriel: champs.courriel.value.trim(),
+                fonction: champs.fonction.value.trim()
+            })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors de la modification : ' + result.error);
+                        return;
+                    }
+                    showSuccess('Contact modifié');
+                    return rechargerContacts();
+                })
+                .catch(error => {
+                    showError('Erreur lors de la modification : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => setButtonLoading(button, false));
+        }
+
+        let deleteContactConfirmPending = null;
+
+        function confirmDeleteContact(contactId, bouton) {
+            if (deleteContactConfirmPending !== contactId) {
+                document.querySelectorAll('.contact-suppr').forEach(b => {
+                    b.textContent = '🗑️';
+                    b.classList.remove('histo-suppr-armee');
+                });
+                deleteContactConfirmPending = contactId;
+                bouton.textContent = 'Confirmer ?';
+                bouton.classList.add('histo-suppr-armee');
+                return;
+            }
+            deleteContactConfirmPending = null;
+            setButtonLoading(bouton, true, '...');
+
+            apiPost('deleteContact', { contactId: contactId })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Erreur lors de la suppression : ' + result.error);
+                        return;
+                    }
+                    showSuccess('Contact supprimé');
+                    return rechargerContacts();
+                })
+                .catch(error => {
+                    showError('Erreur lors de la suppression : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => setButtonLoading(bouton, false));
+        }
+
+        /** Relit la fiche pour repartir de l'état réel de la feuille. */
+        function rechargerContacts() {
+            return apiPost('prestataireFiche', { id: currentOpenPrestataireId })
+                .then(result => {
+                    if (!result.ok) return;
+                    prestataireContacts = result.contacts || [];
+                    afficherContacts();
+                });
+        }
+
+        /* --- Exports CSV, depuis l'onglet Administration --- */
+
+        /*
+         * Passent par doPost et requireAdmin_, contrairement aux exports de
+         * l'état de division et des copropriétaires qui sont publics : exporter
+         * les contacts par une route publique republierait en CSV les données
+         * nominatives que la liste publique protège.
+         */
+        function telechargerPrestataires(feuille, mode, button) {
+            setButtonLoading(button, true, 'Préparation...');
+
+            return apiPost('exportPrestataires', { feuille: feuille, mode: mode })
+                .then(result => {
+                    if (!result.ok) {
+                        showError('Impossible de préparer le fichier : ' + result.error);
+                        return;
+                    }
+                    const lignes = result.lignes || [];
+                    declencherTelechargement(construireCsv(result.entetes, lignes),
+                        result.nomFichier || 'export.csv');
+                    showSuccess(mode === 'modele'
+                        ? 'Modèle téléchargé'
+                        : (lignes.length
+                            ? lignes.length + ' ligne(s) exportée(s)'
+                            : 'La feuille est vide : seules les colonnes ont été exportées.'));
+                })
+                .catch(error => {
+                    showError('Impossible de préparer le fichier : '
+                        + (error && error.message ? error.message : String(error)));
+                    console.error('Erreur:', error);
+                })
+                .finally(() => setButtonLoading(button, false));
         }
 
         /**
