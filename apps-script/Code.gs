@@ -364,6 +364,13 @@ function ensurePrestataireSheets_() {
     prestataires: creer(PRESTA_SHEET_NAME, PRESTA_HEADERS),
     contacts: creer(CONTACTS_SHEET_NAME, CONTACTS_HEADERS)
   };
+
+  // Appliqué à chaque appel, et pas seulement à la création : une feuille née
+  // avant ce correctif porte encore le format numérique par défaut, qui
+  // supprime le zéro initial des numéros de téléphone.
+  forcerColonneTexte_(_feuillesPrestataires.prestataires, PRESTA_HEADERS, 'Telephone');
+  forcerColonneTexte_(_feuillesPrestataires.contacts, CONTACTS_HEADERS, 'Telephone');
+
   return _feuillesPrestataires;
 }
 
@@ -1879,6 +1886,62 @@ function prestatairesPublics_() {
   });
 }
 
+/*
+ * Téléphones : stockés en 10 chiffres bruts, jamais formatés en base.
+ *
+ * Deux protections distinctes, toutes deux nécessaires :
+ *  - le format de cellule « @ » (texte), sans lequel Google Sheets interprète
+ *    « 0612345678 » comme le nombre 612345678 et perd le zéro initial ;
+ *  - la validation ci-dessous, qui refuse tout ce qui n'est pas exactement dix
+ *    chiffres une fois les séparateurs de saisie retirés.
+ *
+ * Le format seul ne suffirait pas (une saisie fantaisiste resterait stockée),
+ * la validation seule non plus (dix chiffres commençant par zéro seraient
+ * encore tronqués à l'écriture).
+ */
+
+/** Force une colonne entière au format texte, en-tête comprise. */
+function forcerColonneTexte_(sheet, headers, nomColonne) {
+  const col = headers.indexOf(nomColonne) + 1;
+  if (col === 0) return;
+  sheet.getRange(1, col, Math.max(sheet.getMaxRows(), 1), 1).setNumberFormat('@');
+}
+
+/**
+ * Normalise un numéro saisi. Renvoie { ok: true, valeur: '0612345678' },
+ * ou { ok: false, error: ... }. Une valeur vide est acceptée et rendue telle
+ * quelle : tous les contacts n'ont pas de téléphone, et refuser le vide
+ * empêcherait d'enregistrer une fiche par ailleurs valide.
+ */
+function normaliserTelephone_(brut, libelle) {
+  const texte = String(brut === null || brut === undefined ? '' : brut).trim();
+  if (!texte) return { ok: true, valeur: '' };
+
+  // Espaces, points, tirets et points-virgules sont des séparateurs de saisie
+  // courants : on les retire avant de compter, plutôt que de rejeter la saisie.
+  const chiffres = texte.replace(/[\s.\-/]/g, '');
+
+  if (!/^[0-9]{10}$/.test(chiffres)) {
+    return {
+      ok: false,
+      error: (libelle || 'Le numéro de téléphone') + ' doit comporter exactement dix chiffres '
+        + '(numéro français, par exemple 06 12 34 56 78). Reçu : « ' + texte + ' ».'
+    };
+  }
+  return { ok: true, valeur: chiffres };
+}
+
+/**
+ * Écrit un numéro en forçant d'abord la cellule au format texte : une feuille
+ * créée avant ce correctif garde sinon son format numérique d'origine, et
+ * retirerait à nouveau le zéro initial.
+ */
+function ecrireTelephone_(sheet, rowIndex, col, valeur) {
+  const cellule = sheet.getRange(rowIndex, col);
+  cellule.setNumberFormat('@');
+  cellule.setValue(valeur);
+}
+
 /** Localise la ligne d'un prestataire. Renvoie -1 s'il est absent. */
 function ligneDuPrestataire_(sheet, id) {
   const values = sheet.getDataRange().getValues();
@@ -1909,6 +1972,9 @@ function handlePrestataireFiche_(body, user) {
 function handleCreatePrestataire_(body, user) {
   if (!body.societe) return { ok: false, error: 'Nom de la société requis' };
 
+  const tel = normaliserTelephone_(body.telephone, 'Le numéro de téléphone du prestataire');
+  if (!tel.ok) return { ok: false, error: tel.error };
+
   const sheet = ensurePrestataireSheets_().prestataires;
   const id = Utilities.getUuid();
   const maintenant = nowIso_();
@@ -1917,7 +1983,7 @@ function handleCreatePrestataire_(body, user) {
     id,
     body.societe,
     body.prestation || '',
-    body.telephone || '',
+    tel.valeur,
     body.adresse || '',
     body.numeroContrat || '',
     body.dateEcheanceContrat || '',
@@ -1925,6 +1991,10 @@ function handleCreatePrestataire_(body, user) {
     maintenant,
     maintenant
   ]);
+
+  // appendRow écrit avant que le format de la cellule ne s'applique : on le
+  // repose explicitement sur la ligne qui vient d'être créée.
+  ecrireTelephone_(sheet, sheet.getLastRow(), PRESTA_HEADERS.indexOf('Telephone') + 1, tel.valeur);
 
   return { ok: true, id: id };
 }
@@ -1942,6 +2012,13 @@ function handleEditPrestataire_(body, user) {
     return { ok: false, error: 'Le nom de la société ne peut pas être vide.' };
   }
 
+  let telNormalise = null;
+  if (Object.prototype.hasOwnProperty.call(body, 'telephone')) {
+    const tel = normaliserTelephone_(body.telephone, 'Le numéro de téléphone du prestataire');
+    if (!tel.ok) return { ok: false, error: tel.error };
+    telNormalise = tel.valeur;
+  }
+
   const editable = {
     societe: 'Societe',
     prestation: 'Prestation',
@@ -1954,7 +2031,10 @@ function handleEditPrestataire_(body, user) {
   const colOf = function (name) { return PRESTA_HEADERS.indexOf(name) + 1; };
 
   Object.keys(editable).forEach(function (key) {
-    if (Object.prototype.hasOwnProperty.call(body, key)) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) return;
+    if (key === 'telephone') {
+      ecrireTelephone_(sheet, rowIndex, colOf('Telephone'), telNormalise);
+    } else {
       sheet.getRange(rowIndex, colOf(editable[key])).setValue(body[key]);
     }
   });
@@ -1996,6 +2076,9 @@ function handleAddContact_(body, user) {
   if (!body.prestataireId) return { ok: false, error: 'prestataireId requis' };
   if (!body.nom) return { ok: false, error: 'Nom du contact requis' };
 
+  const tel = normaliserTelephone_(body.telephone, 'Le numéro de téléphone du contact');
+  if (!tel.ok) return { ok: false, error: tel.error };
+
   const feuilles = ensurePrestataireSheets_();
   const pid = String(body.prestataireId);
 
@@ -2021,10 +2104,12 @@ function handleAddContact_(body, user) {
     contactId,
     pid,
     body.nom,
-    body.telephone || '',
+    tel.valeur,
     body.courriel || '',
     body.fonction || ''
   ]);
+  ecrireTelephone_(feuilles.contacts, feuilles.contacts.getLastRow(),
+    CONTACTS_HEADERS.indexOf('Telephone') + 1, tel.valeur);
 
   return { ok: true, contactId: contactId, restants: MAX_CONTACTS - existants - 1 };
 }
@@ -2046,9 +2131,19 @@ function handleEditContact_(body, user) {
     return { ok: false, error: 'Le nom du contact ne peut pas être vide.' };
   }
 
+  let telNormalise = null;
+  if (Object.prototype.hasOwnProperty.call(body, 'telephone')) {
+    const tel = normaliserTelephone_(body.telephone, 'Le numéro de téléphone du contact');
+    if (!tel.ok) return { ok: false, error: tel.error };
+    telNormalise = tel.valeur;
+  }
+
   const editable = { nom: 'Nom', telephone: 'Telephone', courriel: 'Courriel', fonction: 'Fonction' };
   Object.keys(editable).forEach(function (key) {
-    if (Object.prototype.hasOwnProperty.call(body, key)) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) return;
+    if (key === 'telephone') {
+      ecrireTelephone_(sheet, rowIndex, colOf('Telephone'), telNormalise);
+    } else {
       sheet.getRange(rowIndex, colOf(editable[key])).setValue(body[key]);
     }
   });
@@ -2192,6 +2287,59 @@ function diagnostiquerFeuille_(nomFeuille, headers) {
  * l'éditeur Apps Script, et celle-ci est faite pour être lancée à la main.
  * Résultat dans Exécution > Journaux.
  */
+/**
+ * Répare les numéros de téléphone déjà enregistrés sans leur zéro initial,
+ * avant que la colonne ne passe au format texte.
+ *
+ * À lancer une seule fois, à la main. Ne touche qu'aux valeurs de neuf chiffres
+ * exactement, seule forme que la troncature d'un numéro français à dix chiffres
+ * puisse produire : un zéro de tête est réinséré. Toute autre valeur — vide,
+ * déjà à dix chiffres, ou de longueur inattendue — est laissée telle quelle et
+ * signalée dans le journal, à corriger à la main.
+ *
+ * Sans « _ » final, pour apparaître dans le sélecteur « Exécuter ».
+ */
+function reparerTelephones() {
+  const feuilles = ensurePrestataireSheets_();
+  const cibles = [
+    { sheet: feuilles.prestataires, headers: PRESTA_HEADERS, nom: PRESTA_SHEET_NAME },
+    { sheet: feuilles.contacts, headers: CONTACTS_HEADERS, nom: CONTACTS_SHEET_NAME }
+  ];
+
+  cibles.forEach(function (cible) {
+    const col = cible.headers.indexOf('Telephone') + 1;
+    const dernier = cible.sheet.getLastRow();
+    Logger.log('--- %s', cible.nom);
+    if (col === 0 || dernier < 2) {
+      Logger.log('  rien à faire (colonne absente ou feuille vide).');
+      return;
+    }
+
+    const plage = cible.sheet.getRange(2, col, dernier - 1, 1);
+    const valeurs = plage.getValues();
+    let repares = 0;
+    let suspects = 0;
+
+    valeurs.forEach(function (ligne, i) {
+      const brut = String(ligne[0] === null || ligne[0] === undefined ? '' : ligne[0]).trim();
+      if (!brut) return;
+      if (/^[0-9]{10}$/.test(brut)) return;
+
+      if (/^[0-9]{9}$/.test(brut)) {
+        ligne[0] = '0' + brut;
+        repares++;
+      } else {
+        suspects++;
+        Logger.log('  ligne %s : « %s » laissée telle quelle, à corriger à la main.', i + 2, brut);
+      }
+    });
+
+    plage.setNumberFormat('@');
+    if (repares) plage.setValues(valeurs);
+    Logger.log('  %s numéro(s) réparé(s), %s à revoir à la main.', repares, suspects);
+  });
+}
+
 function diagnostiquerSuivi() {
   diagnostiquerFeuille_(POINTS_SHEET_NAME, POINTS_HEADERS);
   diagnostiquerFeuille_(HISTO_SHEET_NAME, HISTO_HEADERS);

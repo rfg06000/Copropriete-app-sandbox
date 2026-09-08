@@ -413,6 +413,32 @@
         }
         .toast-fermer:hover { opacity: 1; }
 
+        /* Avertissement en tête de l'onglet Prestataires. Public, affiché avant
+           la liste. La première ligne porte l'information qui engage
+           financièrement le copropriétaire : elle est détachée du reste par la
+           taille, la graisse et la couleur, pour être lue en premier. */
+        .avertissement-prestataires {
+            background: #fff4e5;
+            border: 2px solid #e8a33d;
+            border-left: 8px solid #e8a33d;
+            border-radius: 8px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+        }
+        .avertissement-titre {
+            font-weight: 700;
+            font-size: 17px;
+            line-height: 1.35;
+            color: #8a4b00;
+            margin: 0 0 10px 0;
+        }
+        .avertissement-texte {
+            font-size: 15px;
+            line-height: 1.5;
+            color: #5c4322;
+            margin: 0;
+        }
+
         /* Suppression d'une entrée d'historique, en deux clics : le bouton armé
            change de libellé et de couleur, comme celui de suppression d'un point. */
         .histo-suppr {
@@ -1056,6 +1082,11 @@
          administrateur, et le serveur ne sert la fiche complète et les contacts
          qu'à un jeton admin — voir PRESTA_PUBLIC dans Code.gs. -->
     <div id="prestataires-page" class="page">
+        <div class="avertissement-prestataires" role="note">
+            <p class="avertissement-titre">LA COPROPRIÉTÉ NE REMBOURSERA PAS D'INTERVENTION EFFECTUÉE PAR UN AUTRE PRESTATAIRE</p>
+            <p class="avertissement-texte">En cas d'absence, nous vous remercions de fermer vos robinets d'arrivée d'eau et laisser vos coordonnées à l'un de vos voisins afin d'être joignable en cas d'urgence.</p>
+        </div>
+
         <div class="filters">
             <div class="filter-group">
                 <label>Recherche (prestation ou société) :</label>
@@ -3347,6 +3378,25 @@
          * séparément, par une action que requireAdmin_ protège — masquer le
          * bouton « Fiche » ne serait qu'un habillage.
          */
+        /**
+         * Affichage d'un numéro par paires : 0612345678 → « 06 12 34 56 78 ».
+         *
+         * Le stockage reste en dix chiffres bruts ; ce formatage ne concerne que
+         * l'affichage, et le serveur retire de toute façon les séparateurs avant
+         * de valider, donc un numéro formaté peut être renvoyé tel quel.
+         *
+         * Une valeur qui n'est pas exactement dix chiffres est rendue telle
+         * quelle plutôt que découpée de travers : elle signale un enregistrement
+         * antérieur à la validation, et doit rester visible comme anomalie.
+         */
+        function formaterTelephone(valeur) {
+            const brut = String(valeur === null || valeur === undefined ? '' : valeur).trim();
+            if (!brut) return '';
+            const chiffres = brut.replace(/[\s.\-/]/g, '');
+            if (!/^[0-9]{10}$/.test(chiffres)) return brut;
+            return chiffres.match(/.{2}/g).join(' ');
+        }
+
         let prestatairesData = [];
         let currentOpenPrestataireId = null;
         let prestataireContacts = [];
@@ -3401,7 +3451,7 @@
 
             lignes.forEach(p => {
                 const tr = document.createElement('tr');
-                [p.Prestation, p.Societe, p.Telephone].forEach(valeur => {
+                [p.Prestation, p.Societe, formaterTelephone(p.Telephone)].forEach(valeur => {
                     const td = document.createElement('td');
                     td.textContent = valeur || '';
                     tr.appendChild(td);
@@ -3448,7 +3498,7 @@
             const champs = {
                 'pf-societe': p.Societe,
                 'pf-prestation': p.Prestation,
-                'pf-telephone': p.Telephone,
+                'pf-telephone': formaterTelephone(p.Telephone),
                 'pf-adresse': p.Adresse,
                 'pf-numeroContrat': p.NumeroContrat,
                 'pf-note': p.Note
@@ -3634,7 +3684,9 @@
                     const td = document.createElement('td');
                     const input = document.createElement('input');
                     input.type = cle === 'courriel' ? 'email' : 'text';
-                    input.value = c[colonne] || '';
+                    input.value = cle === 'telephone'
+                        ? formaterTelephone(c[colonne])
+                        : (c[colonne] || '');
                     input.style.cssText = 'width:100%;padding:6px;border:1px solid #e1e5e9;border-radius:4px;';
                     champs[cle] = input;
                     td.appendChild(input);
